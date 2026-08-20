@@ -1,0 +1,446 @@
+# Project Proposal: Sample-Efficient Specialization of Generalist Robot Policies with Residual Reinforcement Learning
+
+## 1. Working Title
+
+**Sample-Efficient Specialization of Generalist Robot Policies with Residual Reinforcement Learning**
+
+Alternative blog title:
+
+**Teaching a Robot Foundation Model the Last Millimeter**
+
+## 2. Motivation
+
+Modern vision-language-action (VLA) models can act as generalist robot policies: a single pretrained policy can perform many manipulation tasks from visual observations and natural-language instructions.
+
+However, broad competence does not necessarily imply precision. A generalist policy may understand that an object must be inserted, aligned, or placed at a target location while still producing small control errors that cause failure during the most delicate phase of the task.
+
+A natural alternative to fine-tuning the entire foundation model is to keep the generalist policy frozen and train a much smaller reinforcement-learning controller that specializes its behavior through interaction.
+
+This project is inspired by Physical Intelligence's **RL Tokens (RLT)** approach, in which a frozen VLA provides a compact internal representation to lightweight actor and critic networks. Rather than relearning the entire manipulation skill, RL specializes the behavior required during difficult precision stages.
+
+The project will study a smaller, simulation-based version of this idea suitable for a university semester.
+
+## 3. Main Research Question
+
+**Can a lightweight reinforcement-learning policy efficiently specialize a frozen generalist robot policy for precision manipulation while preserving the useful behavior of the original policy?**
+
+A secondary question is:
+
+**Can the agent learn when RL intervention is necessary, rather than modifying the generalist policy at every timestep?**
+
+## 4. Hypotheses
+
+### H1 — Residual RL improves precision
+
+A residual RL policy initialized around the actions of a pretrained generalist policy will achieve a higher task success rate than the frozen policy alone.
+
+### H2 — Foundation-model representations improve sample efficiency
+
+An RL policy that receives a latent representation from the frozen VLA will learn faster than an RL policy trained directly from raw or low-level state observations.
+
+### H3 — Selective intervention preserves generalist behavior
+
+A policy that learns how strongly to intervene will achieve similar or better performance than an always-active residual controller while changing fewer of the original VLA's actions.
+
+## 5. Proposed Architecture
+
+Let the frozen generalist policy produce
+
+[
+a_t^{base} = \pi_{VLA}(o_t, l)
+]
+
+where:
+
+* (o_t) is the current observation;
+* (l) is the language instruction;
+* (a_t^{base}) is the action proposed by the foundation policy.
+
+A latent representation is extracted from the frozen model:
+
+[
+z_t = f_{VLA}(o_t,l).
+]
+
+The reinforcement-learning actor receives the latent representation and reference action:
+
+[
+(\Delta a_t,g_t)
+================
+
+\pi_{RL}(z_t,a_t^{base}),
+]
+
+where:
+
+* (\Delta a_t) is an action correction;
+* (g_t\in[0,1]) determines how strongly RL should intervene.
+
+The executed action is
+
+[
+a_t =
+a_t^{base}
++
+g_t\Delta a_t.
+]
+
+The foundation model remains frozen throughout RL training.
+
+The critic estimates
+
+[
+Q(z_t,a_t)
+]
+
+and the actor can be optimized using a continuous-control RL algorithm such as SAC.
+
+## 6. Intervention Regularization
+
+The RL controller should not replace the generalist policy unnecessarily.
+
+The reward will therefore contain penalties for large corrections and excessive intervention:
+
+[
+r'_t
+====
+
+## r_t
+
+## \lambda_\Delta|\Delta a_t|^2
+
+\lambda_g g_t.
+]
+
+This creates an explicit trade-off:
+
+**task performance vs. deviation from the generalist policy.**
+
+Ideally, the resulting behavior will resemble:
+
+**generalist control → difficult state encountered → RL correction → return to generalist control.**
+
+## 7. Experimental Environment
+
+The primary implementation will be simulation-based.
+
+The preferred setup is:
+
+**OpenPI / π-style pretrained policy + LIBERO simulation benchmark.**
+
+A pretrained policy will first be evaluated across several LIBERO tasks. Two or three tasks will then be selected in which:
+
+1. the base model already demonstrates meaningful task competence;
+2. failures frequently occur during alignment, placement, contact, or another precision-sensitive stage;
+3. improvement can be measured with a clear success criterion.
+
+This screening step is intentional. The purpose of the project is not to teach a completely unknown skill from scratch, but to specialize an already useful generalist behavior.
+
+If suitable precision tasks cannot be obtained from the existing benchmark, a controlled simulation task will be constructed around precise placement or alignment.
+
+## 8. Experimental Conditions
+
+The central comparison will include at least four methods.
+
+### A. Frozen Generalist Policy
+
+[
+a_t = a_t^{base}
+]
+
+No adaptation.
+
+This measures the starting capability of the pretrained model.
+
+### B. RL From Scratch
+
+[
+a_t = \pi_{RL}(s_t)
+]
+
+A conventional RL policy without access to the generalist policy.
+
+This tests the value of prior generalist behavior.
+
+### C. Residual RL
+
+[
+a_t =
+a_t^{base}+\Delta a_t
+]
+
+The RL agent always modifies the generalist action.
+
+### D. Gated Residual RL — Proposed Method
+
+[
+a_t =
+a_t^{base}
++
+g_t\Delta a_t.
+]
+
+The agent learns both the correction and how strongly it should intervene.
+
+## 9. Representation Ablation
+
+If implementation time permits, the most important additional experiment will compare different inputs to the RL policy.
+
+### State-based RL
+
+[
+\pi_{RL}(s_t,a_t^{base})
+]
+
+### VLA-latent RL
+
+[
+\pi_{RL}(z_t,a_t^{base})
+]
+
+This directly tests whether representations learned by a generalist robot foundation model constitute a useful state representation for reinforcement learning.
+
+This may become the most interesting scientific result of the project.
+
+## 10. Metrics
+
+The primary metric will be:
+
+[
+\text{Task Success Rate}.
+]
+
+Additional metrics will include:
+
+### Sample efficiency
+
+Success rate as a function of environment interactions:
+
+[
+S(N).
+]
+
+### Learning speed
+
+Number of environment interactions required to reach a chosen success threshold.
+
+### Intervention magnitude
+
+[
+\frac{1}{T}
+\sum_t
+|\Delta a_t|.
+]
+
+### Intervention frequency/intensity
+
+[
+\frac{1}{T}
+\sum_t g_t.
+]
+
+### Episode duration
+
+Number of steps required to successfully complete the task.
+
+### Return
+
+Average episodic reward during training.
+
+Results should preferably be reported across multiple random seeds.
+
+## 11. Key Experiments
+
+### Experiment 1 — Does residual RL work?
+
+Compare:
+
+**Frozen VLA vs. RL from scratch vs. residual RL.**
+
+Expected result:
+
+Residual RL should learn significantly faster because it begins near an already competent control policy.
+
+### Experiment 2 — Are VLA representations useful for RL?
+
+Compare:
+
+**state-based residual RL vs. latent-based residual RL.**
+
+Expected result:
+
+The pretrained representation should encode task-relevant semantic and geometric information and therefore improve sample efficiency.
+
+### Experiment 3 — Can RL learn when to intervene?
+
+Compare:
+
+**always-on residual RL vs. gated residual RL.**
+
+Measure both success and total intervention.
+
+A strong result would be:
+
+[
+\text{similar success}
+\quad+\quad
+\text{significantly less intervention}.
+]
+
+### Experiment 4 — Where does RL intervene?
+
+Visualize (g_t) throughout successful episodes.
+
+The project should examine whether intervention naturally increases near:
+
+* contact;
+* alignment;
+* grasp adjustment;
+* placement;
+* insertion;
+* other high-precision phases.
+
+This experiment is particularly useful for the blog post because it makes the learned specialization interpretable.
+
+## 12. Minimum Viable Project
+
+The project is considered successful if the following are completed:
+
+1. Run a pretrained generalist robot policy in simulation.
+2. Freeze the generalist policy.
+3. Train a residual RL policy on one manipulation task.
+4. Compare the frozen baseline against residual RL.
+5. Produce learning curves and success-rate measurements.
+6. Analyze the residual corrections learned by RL.
+
+This is the core semester project.
+
+Everything beyond this point is an extension rather than a requirement.
+
+## 13. Stretch Goal 1 — VLA Representation Ablation
+
+Expose an intermediate VLA representation and compare it against standard environment state observations.
+
+Research question:
+
+**Does the VLA contain a representation that makes downstream reinforcement learning easier?**
+
+This would substantially strengthen the research contribution.
+
+## 14. Stretch Goal 2 — Learned Intervention
+
+Extend the RL actor to produce an intervention gate (g_t).
+
+Research question:
+
+**Can the specialist learn when it is needed?**
+
+The objective becomes not simply maximizing success, but maximizing success while minimally modifying the foundation policy.
+
+## 15. Stretch Goal 3 — Generalization
+
+Train the residual controller on one set of initial conditions and test it under variations such as:
+
+* different object positions;
+* different target positions;
+* visual variation;
+* object geometry variation;
+* different language formulations.
+
+This can test whether specialization destroys or preserves some of the original policy's generality.
+
+## 16. Expected Contribution
+
+The goal is not to create a new robot foundation model.
+
+The contribution is an empirical study of how a pretrained generalist policy and conventional reinforcement learning can complement one another.
+
+The project will investigate three properties:
+
+**Prior knowledge**
+
+Does the generalist policy dramatically reduce the exploration burden of RL?
+
+**Representation**
+
+Do its internal features provide a good state space for reinforcement learning?
+
+**Specialization**
+
+Can RL modify only the parts of a trajectory in which the generalist policy is insufficient?
+
+## 17. Risks and Fallback Strategies
+
+### Risk: Foundation-model integration takes too long
+
+Fallback:
+
+Treat the pretrained model as a black-box action generator and implement residual RL using environment state observations first.
+
+This still allows the main residual-RL hypothesis to be tested.
+
+### Risk: The base policy has near-zero task success
+
+Fallback:
+
+Select a different task.
+
+Residual RL is intended to refine an existing behavior, not discover an entirely new task.
+
+### Risk: RL is unstable
+
+Fallback:
+
+Begin with dense simulator rewards and a single task.
+
+Sparse-reward learning should only be attempted after the architecture works reliably.
+
+### Risk: Training is computationally expensive
+
+Fallback:
+
+Keep the VLA entirely frozen, cache representations where possible, and train only small actor/critic networks.
+
+### Risk: Gating complicates training
+
+Fallback:
+
+Complete the always-on residual policy first.
+
+The intervention gate is a stretch goal, not part of the critical path.
+
+## 18. Required Resources
+
+The project requires:
+
+* Python and PyTorch/JAX;
+* a robotics simulator such as LIBERO/robosuite;
+* OpenPI or another accessible pretrained visuomotor policy;
+* an implementation of SAC or another continuous-control actor–critic algorithm;
+* access to a CUDA-capable GPU.
+
+The computational strategy is specifically designed to avoid full VLA fine-tuning.
+
+## 19. Deliverables
+
+The semester project will produce:
+
+1. a working simulation implementation;
+2. reproducible training and evaluation code;
+3. quantitative experimental results;
+4. learning curves and ablation studies;
+5. trajectory/intervention visualizations;
+6. a final university report;
+7. a technical blog post explaining the project visually and intuitively.
+
+## 20. Blog Narrative
+
+The blog can revolve around a simple question:
+
+**A robot foundation model already knows roughly what to do. Can reinforcement learning teach it the last millimeter?**
+
+The story can progress through:
+
+**generalist policy → failure → practice → residual corrections → learned intervention → improved precision.**
+
+That gives the technical work a much clearer narrative than presenting the project simply as another reinforcement-learning benchmark.

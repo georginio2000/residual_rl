@@ -1,0 +1,40 @@
+experiment:
+  name: toy_gated
+  mode: gated
+  seed: 0
+  device: cpu
+  output_dir: runs/toy_gated
+
+environment:
+  max_episode_steps: 60
+  step_scale: 0.10
+  success_tolerance: 0.035
+  success_bonus: 5.0
+  action_penalty: 0.01
+  process_noise_std: 0.0
+
+base_policy:
+  gain: 5.0
+  bias: [0.18, -0.12]
+
+agent:
+  hidden_dims: [128, 128]
+  residual_scale: 0.35
+  gamma: 0.99
+  tau: 0.005
+  learning_rate: 0.0003
+  alpha: 0.2
+  automatic_entropy_tuning: true
+
+training:
+  total_steps: 40000
+  replay_capacity: 100000
+  batch_size: 256
+  start_steps: 1000
+  updates_per_step: 1
+  evaluation_interval: 4000
+  evaluation_episodes: 50
+  checkpoint_interval: 10000
+  lambda_delta: 0.02
+  lambda_gate: 0.01
+
