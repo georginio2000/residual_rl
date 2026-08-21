@@ -69,8 +69,16 @@ def test_remote_libero_rejects_step_before_reset() -> None:
         env.step(np.zeros(7))
 
 
-def test_frozen_libero_config_builds_without_connecting() -> None:
-    config_path = Path(__file__).parents[1] / "configs/libero/frozen_state.yaml"
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "frozen_state.yaml",
+        "spatial_task4_frozen_state.yaml",
+        "libero10_task8_frozen_state.yaml",
+    ],
+)
+def test_frozen_libero_config_builds_without_connecting(config_name: str) -> None:
+    config_path = Path(__file__).parents[1] / "configs/libero" / config_name
     config = load_config(config_path)
 
     components = make_components(config)

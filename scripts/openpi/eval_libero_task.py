@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-suite-name", choices=sorted(MAX_STEPS), default="libero_spatial")
     parser.add_argument("--task-id", type=int, default=0)
     parser.add_argument("--num-trials", type=int, default=1)
+    parser.add_argument("--initial-state-offset", type=int, default=0)
     parser.add_argument("--resize-size", type=int, default=224)
     parser.add_argument("--replan-steps", type=int, default=5)
     parser.add_argument("--num-steps-wait", type=int, default=10)
@@ -92,6 +93,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("num_trials must be positive")
     if args.replan_steps <= 0:
         raise ValueError("replan_steps must be positive")
+    if args.initial_state_offset < 0:
+        raise ValueError("initial_state_offset cannot be negative")
 
     np.random.seed(args.seed)
     task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
@@ -99,10 +102,11 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"task_id must be in [0, {task_suite.n_tasks})")
     task = task_suite.get_task(args.task_id)
     initial_states = task_suite.get_task_init_states(args.task_id)
-    if args.num_trials > len(initial_states):
+    initial_state_stop = args.initial_state_offset + args.num_trials
+    if initial_state_stop > len(initial_states):
         raise ValueError(
-            f"requested {args.num_trials} trials but only "
-            f"{len(initial_states)} initial states exist"
+            f"requested initial states [{args.initial_state_offset}, "
+            f"{initial_state_stop}) but only {len(initial_states)} exist"
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -112,8 +116,9 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
     episode_results = []
     try:
         for episode_index in range(args.num_trials):
+            initial_state_id = args.initial_state_offset + episode_index
             env.reset()
-            observation = env.set_init_state(initial_states[episode_index])
+            observation = env.set_init_state(initial_states[initial_state_id])
             action_plan = collections.deque()
             replay_images = []
             inference_requests = 0
@@ -188,6 +193,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
             episode_results.append(
                 {
                     "episode": episode_index,
+                    "initial_state_id": initial_state_id,
                     "success": bool(done),
                     "steps": step,
                     "inference_requests": inference_requests,
@@ -215,6 +221,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         "task_id": args.task_id,
         "task_description": str(task.language),
         "seed": args.seed,
+        "initial_state_offset": args.initial_state_offset,
         "trials": args.num_trials,
         "successes": successes,
         "success_rate": successes / args.num_trials,

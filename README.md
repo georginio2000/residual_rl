@@ -7,7 +7,7 @@ specialize a frozen generalist robot policy for precision manipulation:
 executed_action = base_action + gate * correction
 ```
 
-The toy residual-RL experiment, a frozen OpenPI π0.5-LIBERO baseline, and an
+The toy residual-RL experiment, frozen OpenPI π0.5-LIBERO baselines, and an
 isolated state-based LIBERO bridge are validated. OpenPI is served as a frozen
 remote policy; it is not installed in the main project environment and no VLA
 parameters are fine-tuned.
@@ -21,6 +21,11 @@ parameters are fine-tuned.
 - Frozen `pi05_libero` evaluation was reproduced at inference batch size 1.
 - The main project evaluated three LIBERO initial states through an isolated
   state/base-action bridge; all three succeeded.
+- Reusable batch-size-1 screening covered every LIBERO Spatial and LIBERO-10
+  task, with explicit initial-state range selection.
+- LIBERO-10 task 8, “put both moka pots on the stove,” is the selected residual
+  candidate: the frozen policy scored 3/5 in the direct loop and 1/5 through
+  the main-project bridge on fixed initial states 0–4.
 - Environment, base-policy, and representation construction now use named,
   extensible backends with mocked CPU-only boundary tests.
 - Residual LIBERO training and VLA-latent extraction have not been started.
@@ -268,6 +273,78 @@ The structured result and replay video are written to
 12 GB GPU; it does not establish enough headroom for co-locating additional
 large GPU models.
 
+## Frozen task screening and candidate selection
+
+The reusable screening runner evaluates selected tasks sequentially against an
+already-running frozen server. It writes `screen_result.json` after every task,
+so partial results survive an interrupted screen. This command covers the ten
+LIBERO Spatial tasks at one initial state each:
+
+```bash
+mkdir -p /root/workspace/residual_rl/runs/libero_spatial_screen_1x10
+
+docker run --rm --gpus all \
+  --add-host=host.docker.internal:host-gateway \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e PYOPENGL_PLATFORM=egl \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  -v /root/workspace/openpi:/app:ro \
+  -v /root/workspace/residual_rl:/residual_rl:ro \
+  -v /root/workspace/residual_rl/runs/libero_spatial_screen_1x10:/data \
+  libero /bin/bash -lc \
+  'source /.venv/bin/activate && \
+   python /residual_rl/scripts/openpi/screen_libero_tasks.py \
+     --host host.docker.internal \
+     --task-suite-name libero_spatial \
+     --task-ids 0,1,2,3,4,5,6,7,8,9 \
+     --num-trials 1 \
+     --seed 7 \
+     --output-dir /data'
+```
+
+Change `--task-suite-name` to `libero_10` to screen the harder ten-task suite.
+The validated first pass scored 9/10 on Spatial and 10/10 on LIBERO-10. Spatial
+task 4 was investigated further, but it scored 14/16 across direct frozen
+rollouts and 5/5 through the bridge, making it too close to solved.
+
+`eval_libero_task.py` and `screen_libero_tasks.py` accept
+`--initial-state-offset`, so follow-up runs can cover new states instead of
+repeating state 0. The selected candidate was confirmed with:
+
+```bash
+mkdir -p /root/workspace/residual_rl/runs/libero_10_task8_5trials
+
+docker run --rm --gpus all \
+  --add-host=host.docker.internal:host-gateway \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e PYOPENGL_PLATFORM=egl \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  -v /root/workspace/openpi:/app:ro \
+  -v /root/workspace/residual_rl:/residual_rl:ro \
+  -v /root/workspace/residual_rl/runs/libero_10_task8_5trials:/data \
+  libero /bin/bash -lc \
+  'source /.venv/bin/activate && \
+   python /residual_rl/scripts/openpi/eval_libero_task.py \
+     --host host.docker.internal \
+     --task-suite-name libero_10 \
+     --task-id 8 \
+     --num-trials 5 \
+     --initial-state-offset 0 \
+     --seed 7 \
+     --output-dir /data'
+```
+
+The direct frozen baseline succeeded on states 0, 3, and 4 and timed out on
+states 1 and 2: 3/5 success. Successful episodes used 432–445 total simulator
+steps; both failures exhausted the 530-step limit. Video inspection showed
+that both failures placed the first moka pot, then stalled while reaching for
+or grasping the second. This is a concrete late-stage correction opportunity,
+not a task where the frozen policy makes no useful progress.
+
 ## State-based isolated LIBERO bridge
 
 The next integration boundary is now implemented as:
@@ -360,6 +437,21 @@ cd /root/workspace/openpi
 docker compose -f examples/libero/compose.yml stop openpi_server
 ```
 
+The selected LIBERO-10 task 8 uses the same boundary. Launch the bridge with
+`--task-suite-name libero_10 --task-id 8`, then run:
+
+```bash
+.venv/bin/python -m last_millimeter.train \
+  --config configs/libero/libero10_task8_frozen_state.yaml
+```
+
+On fixed initial states 0–4, the bridge baseline scored 1/5: state 0 succeeded
+in 417 total steps, while states 1–4 reached the 530-step limit. States 1 and 2
+also failed in the direct evaluator. States 3 and 4 changed outcome under small
+accelerator-level action differences, so direct-loop and bridge results are
+reported separately rather than treated as bitwise-equivalent runs. Sampled
+VRAM during this longer bridge evaluation was 9,365 MiB / 12,288 MiB.
+
 ## Experiment modes and next gate
 
 - `frozen`: evaluate the frozen base policy.
@@ -372,9 +464,13 @@ intensity. The actor receives the configured representation and reference base
 action. Critics evaluate the policy output in that same context, while the
 environment receives the composed action.
 
-Task 0 succeeded on all three tested initial states, so it does not yet provide
-room to demonstrate residual improvement. The next gate is to screen a small
-set of frozen LIBERO tasks/initial states and select one with useful but
-imperfect base-policy success. State-based always-on residual training can then
-begin on that task with dense reward diagnostics. VLA-latent extraction and
-learned gating remain separate follow-up steps, with the VLA frozen throughout.
+LIBERO-10 task 8 is now the selected imperfect baseline, but residual training
+is still gated. The current 8-D representation contains only end-effector pose
+and gripper state; it cannot identify either moka pot, the stove target, or
+whether the first subgoal is complete. The next milestone is to expose a
+compact simulator task-state vector through the existing bridge, define and
+test phase-aware dense reward diagnostics for the two placements, and rerun the
+frozen baseline without changing OpenPI. State-based always-on residual
+training can begin only after that boundary is reproducible. VLA-latent
+extraction and learned gating remain separate follow-up steps, with the VLA
+frozen throughout.
