@@ -68,10 +68,11 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
             "final_evaluation": evaluation,
         }
         write_json(summary, output_dir / "summary.json")
+        components.base_policy.close()
         return summary
 
     assert components.agent is not None
-    env = make_environment(config)
+    env = make_environment(config, components.backends)
     rng = np.random.default_rng(config.experiment.seed)
     replay = ReplayBuffer(
         capacity=config.training.replay_capacity,
@@ -82,6 +83,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
     )
 
     observation, _ = env.reset(seed=config.experiment.seed)
+    components.base_policy.reset()
     state, base_action = encode_step(observation, components)
     episode = 0
     episode_task_return = 0.0
@@ -149,6 +151,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 )
                 episode += 1
                 observation, _ = env.reset()
+                components.base_policy.reset()
                 state, base_action = encode_step(observation, components)
                 episode_task_return = 0.0
                 episode_regularized_return = 0.0
@@ -177,6 +180,8 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                     f"correction={last_evaluation['mean_correction_norm']:.3f} "
                     f"gate={last_evaluation['mean_gate']:.3f}"
                 )
+                components.base_policy.reset()
+                state, base_action = encode_step(observation, components)
 
             if (
                 config.training.checkpoint_interval > 0
@@ -196,6 +201,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
             writer.write(**_evaluation_row(config.training.total_steps, last_evaluation))
 
     env.close()
+    components.base_policy.close()
     components.agent.save(output_dir / "checkpoints" / "final.pt")
     summary = {
         "experiment": config.experiment.name,

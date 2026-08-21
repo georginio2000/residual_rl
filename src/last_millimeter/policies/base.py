@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -16,8 +17,14 @@ class BasePolicy(ABC):
         """Number of continuous action dimensions."""
 
     @abstractmethod
-    def act(self, observation: np.ndarray) -> np.ndarray:
+    def act(self, observation: Any) -> np.ndarray:
         """Return a frozen reference action for one observation."""
+
+    def reset(self) -> None:
+        """Reset episode-local policy state, such as a cached action chunk."""
+
+    def close(self) -> None:
+        """Release optional policy resources."""
 
 
 class ProportionalBasePolicy(BasePolicy):
@@ -40,4 +47,3 @@ class ProportionalBasePolicy(BasePolicy):
         position, goal = observation[:2], observation[2:]
         action = self.gain * (goal - position) + self.bias
         return np.clip(action, -1.0, 1.0).astype(np.float32)
-

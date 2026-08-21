@@ -40,9 +40,9 @@ def main() -> None:
         episodes=args.episodes or config.training.evaluation_episodes,
         seed=args.seed if args.seed is not None else config.experiment.seed + 10_000,
     )
+    components.base_policy.close()
     print(json.dumps(metrics, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

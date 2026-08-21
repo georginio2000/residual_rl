@@ -22,6 +22,8 @@ class ExperimentConfig:
 
 @dataclass(slots=True)
 class EnvironmentConfig:
+    backend: str = "precision_reach"
+    options: dict[str, Any] = field(default_factory=dict)
     max_episode_steps: int = 60
     step_scale: float = 0.1
     success_tolerance: float = 0.035
@@ -32,8 +34,16 @@ class EnvironmentConfig:
 
 @dataclass(slots=True)
 class BasePolicyConfig:
+    backend: str = "proportional"
     gain: float = 5.0
     bias: list[float] = field(default_factory=lambda: [0.18, -0.12])
+    options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class RepresentationConfig:
+    backend: str = "identity"
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -66,6 +76,7 @@ class ProjectConfig:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     base_policy: BasePolicyConfig = field(default_factory=BasePolicyConfig)
+    representation: RepresentationConfig = field(default_factory=RepresentationConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
@@ -80,7 +91,19 @@ class ProjectConfig:
             choices = ", ".join(mode.value for mode in ControlMode)
             raise ValueError(f"experiment.mode must be one of: {choices}") from exc
 
-        if len(self.base_policy.bias) != 2:
+        if not self.environment.backend:
+            raise ValueError("environment.backend cannot be empty")
+        if not self.base_policy.backend:
+            raise ValueError("base_policy.backend cannot be empty")
+        if not self.representation.backend:
+            raise ValueError("representation.backend cannot be empty")
+        if not isinstance(self.base_policy.options, dict):
+            raise TypeError("base_policy.options must be a mapping")
+        if not isinstance(self.environment.options, dict):
+            raise TypeError("environment.options must be a mapping")
+        if not isinstance(self.representation.options, dict):
+            raise TypeError("representation.options must be a mapping")
+        if self.base_policy.backend == "proportional" and len(self.base_policy.bias) != 2:
             raise ValueError("base_policy.bias must contain exactly two values")
         if not self.agent.hidden_dims or any(width <= 0 for width in self.agent.hidden_dims):
             raise ValueError("agent.hidden_dims must contain positive widths")
@@ -125,6 +148,7 @@ def load_config(path: str | Path) -> ProjectConfig:
         experiment=ExperimentConfig(**_section(raw, "experiment")),
         environment=EnvironmentConfig(**_section(raw, "environment")),
         base_policy=BasePolicyConfig(**_section(raw, "base_policy")),
+        representation=RepresentationConfig(**_section(raw, "representation")),
         agent=AgentConfig(**_section(raw, "agent")),
         training=TrainingConfig(**_section(raw, "training")),
     )
@@ -137,4 +161,3 @@ def save_config(config: ProjectConfig, path: str | Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config.to_dict(), handle, sort_keys=False)
-

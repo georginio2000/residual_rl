@@ -6,6 +6,7 @@ experiment:
   output_dir: runs/toy_residual
 
 environment:
+  backend: precision_reach
   max_episode_steps: 60
   step_scale: 0.10
   success_tolerance: 0.035
@@ -14,8 +15,12 @@ environment:
   process_noise_std: 0.0
 
 base_policy:
+  backend: proportional
   gain: 5.0
   bias: [0.18, -0.12]
+
+representation:
+  backend: identity
 
 agent:
   hidden_dims: [128, 128]
@@ -37,4 +42,3 @@ training:
   checkpoint_interval: 10000
   lambda_delta: 0.02
   lambda_gate: 0.0
-

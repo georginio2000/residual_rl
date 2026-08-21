@@ -1,76 +1,279 @@
 # Teaching a Robot Foundation Model the Last Millimeter
 
 This repository studies whether a small reinforcement-learning controller can
-specialize a frozen generalist robot policy for precision manipulation. The
-controller can either replace the base action, add an always-on correction, or
-learn a gate that determines when to intervene:
+specialize a frozen generalist robot policy for precision manipulation:
 
 ```text
 executed_action = base_action + gate * correction
 ```
 
-The first implementation milestone is deliberately CPU-runnable. It validates
-the complete training and evaluation path on a two-dimensional precision task
-before simulator and foundation-model integration introduce additional sources
-of failure.
+The toy residual-RL experiment and a frozen OpenPI π0.5-LIBERO baseline are
+both validated. OpenPI is served as a frozen remote policy; it is not installed
+in the main project environment and no VLA parameters are fine-tuned.
 
-## Implemented experiment modes
+## Current milestone status
 
-- `frozen`: evaluate the frozen proportional base policy.
-- `scratch`: train SAC without access to the base policy.
-- `residual`: train an always-active bounded action correction.
-- `gated`: jointly train a bounded correction and intervention gate.
+- All toy `frozen`, `scratch`, `residual`, and `gated` modes are preserved.
+- The full CPU-only test suite passes.
+- The 30,000-step toy residual config was verified on CUDA.
+- Official OpenPI was cloned recursively and pinned exactly.
+- One frozen `pi05_libero` rollout was reproduced at inference batch size 1.
+- Environment, base-policy, and representation construction now use named,
+  extensible backends with mocked CPU-only boundary tests.
+- Residual LIBERO training and VLA-latent extraction have not been started.
 
-Residual and gated rewards can penalize correction magnitude and gate intensity.
-The actor receives the state representation and reference base action. The
-critics evaluate the policy's control output (correction and optional gate) in
-that same context; the environment receives the composed action. This avoids
-aliasing different correction/gate pairs that happen to produce the same final
-action. A future VLA encoder can replace the identity state encoder without
-changing SAC.
+## Main project setup
 
-## Quick start
-
-The current machine already has the required packages, so commands can run from
-the repository without installation:
+Use an isolated environment in this repository. The commands below were tested
+on Ubuntu 22.04 with Python 3.10.12:
 
 ```bash
-PYTHONPATH=src python -m last_millimeter.train \
-  --config configs/toy/residual.yaml
+cd /root/workspace/residual_rl
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip check
+.venv/bin/python -m pytest
 ```
 
-For an editable install:
+The validated direct dependency versions were PyTorch 2.13.0+cu130,
+Gymnasium 1.3.0, NumPy 2.2.6, PyYAML 6.0.3, and pytest 9.1.1.
+
+Run the existing toy residual experiment on CUDA:
 
 ```bash
-python -m pip install -e '.[dev]'
-last-mm-train --config configs/toy/residual.yaml
+.venv/bin/python -m last_millimeter.train \
+  --config configs/toy/residual.yaml \
+  --device cuda
 ```
 
-Run the test suite with:
+The validated seed-0 run completed 30,000 steps and 29,745 updates, then
+reached 100% success over 50 evaluation episodes. It used approximately
+170 MiB VRAM. Outputs are written under `runs/` and ignored by Git.
+
+Evaluate a checkpoint with:
 
 ```bash
-pytest
-```
-
-Training writes `metrics.csv`, `summary.json`, `config.yaml`, and model
-checkpoints under `runs/`. Evaluate a checkpoint with:
-
-```bash
-PYTHONPATH=src python -m last_millimeter.evaluate \
+.venv/bin/python -m last_millimeter.evaluate \
   --config runs/toy_residual/config.yaml \
   --checkpoint runs/toy_residual/checkpoints/final.pt
 ```
 
-## Roadmap
+## Configurable integration boundary
 
-1. Validate the frozen, scratch, residual, and gated comparisons on the toy task.
-2. Add a LIBERO environment adapter while using environment state features.
-3. Add an OpenPI base-policy adapter and freeze all of its parameters.
-4. Expose or cache OpenPI latents and compare them with simulator state inputs.
-5. Run multiple seeds and visualize success, correction magnitude, and gate
-   intensity over trajectories.
+Each YAML config selects three independent backends:
 
-The integration boundary lives in `last_millimeter.policies.base` and
-`last_millimeter.representations`: OpenPI needs to implement base action
-prediction and representation extraction, while the RL implementation remains
-unchanged.
+```yaml
+environment:
+  backend: precision_reach
+
+base_policy:
+  backend: proportional
+
+representation:
+  backend: identity
+```
+
+Built-in names are:
+
+| Boundary | Backends | Purpose |
+|---|---|---|
+| Environment | `precision_reach` | Existing toy Gymnasium environment |
+| Base policy | `proportional`, `openpi_websocket` | Toy controller or frozen remote action chunks |
+| Representation | `identity`, `observation_key` | Flat toy state or a selected mapping feature |
+
+`BackendRegistry` accepts additional builders without importing simulator or
+VLA dependencies into the core package. `OpenPIClientBasePolicy` depends only
+on a small `infer(observation)` protocol, validates action chunks, issues one
+observation per remote request, and clears cached chunks at episode boundaries.
+The optional `openpi_websocket` builder imports only the lightweight
+`openpi-client` package and gives an actionable error when it is absent.
+
+For a mapping observation, a state-only representation can be configured as:
+
+```yaml
+representation:
+  backend: observation_key
+  options:
+    key: observation/state
+    output_dim: 8
+```
+
+This boundary deliberately does not expose VLA latents yet.
+
+## Frozen OpenPI π0.5-LIBERO baseline
+
+### Exact upstream pins
+
+| Component | Pin |
+|---|---|
+| OpenPI | `15a9616a00943ada6c20a0f158e3adb39df2ccac` |
+| OpenPI ALOHA submodule | `d1dc83afd89ded4379851257fe5d85632d31d5ec` |
+| OpenPI LIBERO submodule | `f78abd68ee283de9f9be3c8f7e2a9ad60246e95c` |
+| Checkpoint | `gs://openpi-assets/checkpoints/pi05_libero` |
+
+The downloaded 16-file checkpoint tree had this reproducibility digest. The
+digest hashes the sorted output of `sha256sum` over all relative file paths:
+
+```text
+42d571bd87f05f1182810f5a8bfa6d084c0d0dd277aff739bcf8f69868e6fb99
+```
+
+The separately downloaded `paligemma_tokenizer.model` SHA-256 was:
+
+```text
+8986bb4f423f07f8c7f70d0dbe3526fb2316056c17bae71b1ea975e77a168fc6
+```
+
+Clone and detach at the validated OpenPI revision:
+
+```bash
+cd /root/workspace
+git clone --recurse-submodules \
+  https://github.com/Physical-Intelligence/openpi.git openpi
+git -C openpi checkout 15a9616a00943ada6c20a0f158e3adb39df2ccac
+git -C openpi submodule update --init --recursive
+git -C openpi status --short
+git -C openpi submodule status --recursive
+```
+
+### Docker and NVIDIA runtime
+
+The official workflow needs Docker Compose and NVIDIA Container Toolkit. Check
+them before changing the host:
+
+```bash
+docker --version
+docker compose version
+nvidia-smi
+docker run --rm --gpus all ubuntu:22.04 nvidia-smi
+```
+
+On the validated VM, Docker 28.1.1 was already installed but the runtime entry
+point was missing. NVIDIA Container Toolkit 1.20.0 was installed and Docker was
+restarted once. If needed on another Ubuntu machine, these are machine-wide
+operations and should be reviewed before running:
+
+```bash
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+### Build isolated server and client images
+
+OpenPI's official server Dockerfile builds unchanged:
+
+```bash
+cd /root/workspace/openpi
+docker compose -f examples/libero/compose.yml build openpi_server
+```
+
+The upstream client uses Python 3.8 and `easydict==1.9`. In August 2026, its
+unconstrained isolated build selected a setuptools release containing Python
+3.9-only syntax. The repository-owned Dockerfile mirrors the pinned upstream
+client Dockerfile and adds only a build-time `setuptools==75.3.4` constraint;
+OpenPI and all runtime requirements remain frozen:
+
+```bash
+cd /root/workspace/openpi
+docker build \
+  --tag libero \
+  --file /root/workspace/residual_rl/docker/openpi/libero.Dockerfile \
+  .
+```
+
+The resulting client remains separate at Python 3.8.20 and
+Torch 1.11.0+cu113. The server uses OpenPI's separate Python 3.11 environment.
+
+### Start the frozen server
+
+```bash
+cd /root/workspace/openpi
+SERVER_ARGS='--env LIBERO' \
+  docker compose -f examples/libero/compose.yml \
+  up -d --no-build openpi_server
+docker logs -f libero-openpi_server-1
+```
+
+Wait for `server listening on 0.0.0.0:8000`. The first start downloads about
+11.6 GiB into `/root/.cache/openpi`.
+
+### Run exactly one task at batch size 1
+
+The official client CLI iterates every task in a suite. The following runner is
+a task-selectable copy of that pinned evaluation loop. OpenPI is mounted
+read-only, the client uses bridge networking instead of privileged host
+networking, and only the results directory is writable:
+
+```bash
+mkdir -p /root/workspace/residual_rl/runs/openpi_libero_spatial_task0
+
+docker run --rm --gpus all \
+  --add-host=host.docker.internal:host-gateway \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e PYOPENGL_PLATFORM=egl \
+  -v /root/workspace/openpi:/app:ro \
+  -v /root/workspace/residual_rl:/residual_rl:ro \
+  -v /root/workspace/residual_rl/runs/openpi_libero_spatial_task0:/data \
+  libero /bin/bash -lc \
+  'source /.venv/bin/activate && \
+   python /residual_rl/scripts/openpi/eval_libero_task.py \
+     --host host.docker.internal \
+     --task-suite-name libero_spatial \
+     --task-id 0 \
+     --num-trials 1 \
+     --seed 7 \
+     --output-dir /data'
+```
+
+Monitor memory from another terminal:
+
+```bash
+nvidia-smi \
+  --query-gpu=timestamp,memory.used,memory.total,utilization.gpu \
+  --format=csv,noheader,nounits \
+  --loop=5
+```
+
+Stop the server without removing its checkpoint cache:
+
+```bash
+cd /root/workspace/openpi
+docker compose -f examples/libero/compose.yml stop openpi_server
+```
+
+### Validated result on RTX 3060 12 GB
+
+- Task suite: `libero_spatial`
+- Task ID: `0`
+- Instruction: “pick up the black bowl between the plate and the ramekin and
+  place it on the plate”
+- Seed/trials: `7` / `1`
+- Outcome: success in 113 simulator steps and 21 batch-1 inference requests
+- Frozen server VRAM after load: 9,044 MiB
+- Peak sampled VRAM with server and simulator: 9,624 MiB / 12,288 MiB
+- Minimum sampled headroom: 2,664 MiB
+
+The structured result and replay video are written to
+`runs/openpi_libero_spatial_task0/`. This proves frozen inference fits on the
+12 GB GPU; it does not establish enough headroom for co-locating additional
+large GPU models.
+
+## Experiment modes and next gate
+
+- `frozen`: evaluate the frozen base policy.
+- `scratch`: train SAC without access to the base action.
+- `residual`: train an always-active bounded correction.
+- `gated`: jointly train a bounded correction and intervention gate.
+
+Residual and gated rewards can penalize correction magnitude and gate
+intensity. The actor receives the configured representation and reference base
+action. Critics evaluate the policy output in that same context, while the
+environment receives the composed action.
+
+The next milestone may add a state-based LIBERO adapter and collect repeated
+frozen baselines. Residual LIBERO training and VLA-latent extraction should
+remain separate follow-up steps, with the VLA frozen throughout.

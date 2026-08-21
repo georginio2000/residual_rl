@@ -18,11 +18,12 @@ def evaluate_components(
     episodes: int,
     seed: int,
 ) -> dict[str, float]:
-    env = make_environment(config)
+    env = make_environment(config, components.backends)
     episode_values: dict[str, list[float]] = defaultdict(list)
 
     for episode in range(episodes):
         observation, _ = env.reset(seed=seed + episode)
+        components.base_policy.reset()
         state, base_action = encode_step(observation, components)
         task_return = 0.0
         regularized_return = 0.0
@@ -71,6 +72,7 @@ def evaluate_components(
         episode_values["gate"].append(float(np.mean(gates)))
 
     env.close()
+    components.base_policy.reset()
     return {
         "episodes": float(episodes),
         "success_rate": float(np.mean(episode_values["success"])),
@@ -81,4 +83,3 @@ def evaluate_components(
         "mean_correction_norm": float(np.mean(episode_values["correction_norm"])),
         "mean_gate": float(np.mean(episode_values["gate"])),
     }
-
