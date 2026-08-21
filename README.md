@@ -39,8 +39,9 @@ environment and no VLA parameters are fine-tuned.
 - Initial states are split reproducibly into perturbation selection (0–2),
   future training (3–39), validation (40–44), and final test (45–49). Selection
   states are not eligible for the final held-out claim.
-- The primary adaptation target is the full ten-task Spatial suite, not a
-  task-specific policy. No residual LIBERO training has started.
+- The scene-shift study remains a documented premise check, but the current
+  primary direction is native precision-task screening: `NutAssemblySquare`
+  first, followed by `ToolHang`. No residual training has started.
 - A paired bridge control on Spatial state 0 scored 10/10 without bias, 6/10
   with the selected bias, and 10/10 with the fixed inverse oracle correction.
 - Environment, base-policy, and representation construction now use named,
@@ -289,6 +290,55 @@ The structured result and replay video are written to
 `runs/openpi_libero_spatial_task0/`. This proves frozen inference fits on the
 12 GB GPU; it does not establish enough headroom for co-locating additional
 large GPU models.
+
+## Native robosuite precision-task screen
+
+`pi05_libero` is not a native robosuite checkpoint. This screen intentionally
+tests whether the frozen LIBERO policy transfers enough competence to expose a
+last-millimeter precision failure. It is not an official OpenPI benchmark, and
+the result must not be presented as one. The adapter preserves OpenPI's pinned
+LIBERO convention exactly: Panda with 7-D `OSC_POSE` control, one 8-D
+end-effector/gripper state, `agentview` and wrist images rotated 180 degrees,
+224-pixel padded inputs, five executed actions per batch-size-1 request, and no
+checkpoint or normalization changes.
+
+The evaluator supports `NutAssemblySquare` and `ToolHang`, fixes each native
+placement with the recorded seed, hashes simulator/observation/action traces,
+writes results after every episode, and records transient task stages.
+`NutAssemblySquare` exposes reach, grasp, lift, hover-over-peg, and placement;
+`ToolHang` exposes frame assembly and hanging the released tool.
+
+Start the same frozen server described above, then smoke-test the square nut:
+
+```bash
+mkdir -p /root/workspace/residual_rl/runs/robosuite_nutassemblysquare_smoke
+
+docker run --rm --gpus all \
+  --add-host=host.docker.internal:host-gateway \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e PYOPENGL_PLATFORM=egl \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  -v /root/workspace/openpi:/app:ro \
+  -v /root/workspace/residual_rl:/residual_rl:ro \
+  -v /root/workspace/residual_rl/runs/robosuite_nutassemblysquare_smoke:/data \
+  libero /bin/bash -lc \
+  'source /.venv/bin/activate && \
+   python /residual_rl/scripts/openpi/eval_robosuite_precision.py \
+     --host host.docker.internal \
+     --task NutAssemblySquare \
+     --num-trials 1 \
+     --seed 7 \
+     --output-dir /data'
+```
+
+After validating the observation images, action boundary, and VRAM headroom,
+change `--num-trials` to `10` for the initial screen. Seeds are `seed + episode`
+(7 through 16 for that command). Run ToolHang separately with `--task ToolHang`;
+its default horizon is longer because it contains two sequential assembly
+operations. Commands, selection criteria, and results belong in
+`docs/experiments/robosuite_precision_screen.md`.
 
 ## Frozen task screening
 
