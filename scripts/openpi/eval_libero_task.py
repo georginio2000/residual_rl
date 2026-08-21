@@ -23,6 +23,12 @@ import numpy as np
 from openpi_client import image_tools
 from openpi_client import websocket_client_policy
 
+from libero_scene_perturbation import (
+    capture_scene_root_positions,
+    translate_libero_scene,
+    validate_scene_translation,
+)
+
 
 LIBERO_DUMMY_ACTION = [0.0] * 6 + [-1.0]
 LIBERO_ENV_RESOLUTION = 256
@@ -68,6 +74,12 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="constant bias added to Cartesian x actions after frozen inference",
     )
+    parser.add_argument(
+        "--scene-shift-x",
+        type=float,
+        default=0.0,
+        help="world-x translation in meters applied to every object and fixture",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output-dir", type=Path, default=Path("/data/libero_smoke"))
     return parser.parse_args()
@@ -104,6 +116,11 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("initial_state_offset cannot be negative")
     if not math.isfinite(args.action_bias_x):
         raise ValueError("action_bias_x must be finite")
+    scene_translation = validate_scene_translation(args.scene_shift_x)
+    if not math.isclose(args.action_bias_x, 0.0) and not np.allclose(
+        scene_translation, 0.0
+    ):
+        raise ValueError("action bias and scene translation cannot be enabled together")
     action_bias = np.zeros(LIBERO_ACTION_DIM, dtype=np.float64)
     action_bias[0] = args.action_bias_x
 
@@ -130,6 +147,12 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
             initial_state_id = args.initial_state_offset + episode_index
             env.reset()
             observation = env.set_init_state(initial_states[initial_state_id])
+            nominal_sim_state = np.asarray(env.get_sim_state()).copy()
+            observation, scene_translation_record = translate_libero_scene(
+                env,
+                scene_translation,
+            )
+            shifted_sim_state = np.asarray(env.get_sim_state()).copy()
             action_plan = collections.deque()
             replay_images = []
             inference_requests = 0
@@ -140,14 +163,17 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
             first_executed_action = None
             action_dtype = None
             done = False
-            step = 0
+            for _ in range(args.num_steps_wait):
+                observation, _, done, _ = env.step(LIBERO_DUMMY_ACTION)
+                if done:
+                    raise RuntimeError("LIBERO task terminated during stabilization steps")
+            stabilized_sim_state = np.asarray(env.get_sim_state()).copy()
+            scene_translation_record["stabilized_root_positions_m"] = (
+                capture_scene_root_positions(env)
+            )
+            step = args.num_steps_wait
 
             while step < MAX_STEPS[args.task_suite_name] + args.num_steps_wait:
-                if step < args.num_steps_wait:
-                    observation, _, done, _ = env.step(LIBERO_DUMMY_ACTION)
-                    step += 1
-                    continue
-
                 image = np.ascontiguousarray(observation["agentview_image"][::-1, ::-1])
                 wrist_image = np.ascontiguousarray(
                     observation["robot0_eye_in_hand_image"][::-1, ::-1]
@@ -206,6 +232,16 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
                     break
 
             suffix = "success" if done else "failure"
+            final_sim_state = np.asarray(env.get_sim_state()).copy()
+            for name, state in (
+                ("nominal_sim_state_sha256", nominal_sim_state),
+                ("shifted_sim_state_sha256", shifted_sim_state),
+                ("stabilized_sim_state_sha256", stabilized_sim_state),
+                ("final_sim_state_sha256", final_sim_state),
+            ):
+                digest = hashlib.sha256()
+                update_array_digest(digest, "sim_state", state)
+                scene_translation_record[name] = digest.hexdigest()
             video_name = (
                 f"task_{args.task_id}_episode_{episode_index}_{suffix}.mp4"
             )
@@ -224,6 +260,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
                     "action_dtype": action_dtype,
                     "first_action": first_action,
                     "first_executed_action": first_executed_action,
+                    "scene_translation": scene_translation_record,
                     "video": str(video_path),
                 }
             )
@@ -246,6 +283,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         "seed": args.seed,
         "action_bias": action_bias.tolist(),
         "action_bias_x": args.action_bias_x,
+        "scene_translation_m": scene_translation.tolist(),
+        "scene_shift_x": args.scene_shift_x,
         "initial_state_offset": args.initial_state_offset,
         "trials": args.num_trials,
         "successes": successes,

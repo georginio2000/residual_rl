@@ -1,0 +1,44 @@
+{
+  "experiment": "frozen_pi05_libero_spatial_world_x_scene_shift",
+  "date_utc": "2026-08-21",
+  "openpi_commit": "15a9616a00943ada6c20a0f158e3adb39df2ccac",
+  "libero_commit": "f78abd68ee283de9f9be3c8f7e2a9ad60246e95c",
+  "checkpoint": "gs://openpi-assets/checkpoints/pi05_libero",
+  "seed": 7,
+  "batch_size": 1,
+  "action_bias_x": 0.0,
+  "coarse_state_0": [
+    {"scene_shift_x_m": 0.0, "successes": 10, "trials": 10},
+    {"scene_shift_x_m": 0.03, "successes": 10, "trials": 10},
+    {"scene_shift_x_m": 0.06, "successes": 9, "trials": 10},
+    {"scene_shift_x_m": 0.1, "successes": 9, "trials": 10},
+    {"scene_shift_x_m": 0.14, "successes": 5, "trials": 10}
+  ],
+  "confirmation": {
+    "initial_state_ids": [0, 1, 2],
+    "zero_shift": {
+      "successes": 29,
+      "trials": 30,
+      "success_rate": 0.9666666666666667,
+      "wilson_95_percent": [0.8332960900859082, 0.9940914096183874],
+      "task_state_outcomes": ["SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SFS"]
+    },
+    "shift_x_0p14_m": {
+      "successes": 16,
+      "trials": 30,
+      "success_rate": 0.5333333333333333,
+      "wilson_95_percent": [0.361422996198733, 0.6976761109230025],
+      "task_state_outcomes": ["SSS", "FFS", "FSF", "SSS", "FFF", "SSF", "FFF", "FSS", "SFF", "SSS"]
+    }
+  },
+  "instrumentation": {
+    "episodes_checked": 90,
+    "maximum_root_translation_error_m": 0.0,
+    "zero_shift_state_hashes_unchanged": true
+  },
+  "gpu_sample_mib": {
+    "used": 9622,
+    "free": 2289,
+    "total": 12288
+  }
+}

@@ -8,10 +8,11 @@ executed_action = base_action + gate * correction
 ```
 
 The toy residual-RL experiment, frozen OpenPI π0.5-LIBERO baselines, and an
-isolated state-based LIBERO bridge are validated. A controlled action-calibration
-shift reduces frozen π0.5's LIBERO-Spatial success from 96.7% to 60.0% on the
-same task/state pairs. OpenPI is served as a frozen remote policy; it is not
-installed in the main project environment and no VLA parameters are fine-tuned.
+isolated state-based LIBERO bridge are validated. A semantics-preserving +14 cm
+workspace shift reduces frozen π0.5's LIBERO-Spatial success from 96.7% to
+53.3% on the same task/state IDs. OpenPI is served as a frozen remote policy;
+it is not installed in the main project environment and no VLA parameters are
+fine-tuned.
 
 ## Current milestone status
 
@@ -27,6 +28,11 @@ installed in the main project environment and no VLA parameters are fine-tuned.
 - A constant `+0.15` normalized Cartesian x-action calibration bias was selected
   as the controlled deployment shift. Across all ten Spatial tasks and three
   fixed initial states per task, success changed from 29/30 to 18/30.
+- A global +14 cm world-x translation of every object and fixture preserves the
+  task relations while moving the scene relative to the robot and cameras. The
+  frozen policy changed from 29/30 at zero shift to 16/30 on the same ten tasks
+  and three initial-state IDs. This is the candidate environment-distribution
+  shift for later residual learning.
 - The primary adaptation target is the full ten-task Spatial suite, not a
   task-specific policy. No residual LIBERO training has started.
 - A paired bridge control on Spatial state 0 scored 10/10 without bias, 6/10
@@ -415,6 +421,38 @@ environment:
     action_bias: [0.15, 0, 0, 0, 0, 0, 0]
 ```
 
+## LIBERO-Spatial scene-position shift
+
+A separate premise-screening experiment changes the environment instead of
+the controller. Immediately after loading an official initial state, the
+evaluation runner translates every movable object and fixture by the same
+world-frame displacement. At zero shift this operation is a verified no-op;
+the robot, cameras, task language, policy, controller, and actions are always
+unchanged.
+
+The state-0 coarse sweep was:
+
+| World-x scene shift | Successes | Success rate |
+|---:|---:|---:|
+| 0 cm | 10/10 | 100% |
+| +3 cm | 10/10 | 100% |
+| +6 cm | 9/10 | 90% |
+| +10 cm | 9/10 | 90% |
+| +14 cm | 5/10 | 50% |
+
+Confirming the endpoint on all ten tasks and initial states 0–2 gave 29/30
+(96.7%) at zero shift and 16/30 (53.3%) at +14 cm. This validates the existence
+of a mid-success environment shift; it does not yet establish that residual RL
+can correct it. No residual LIBERO training or VLA-latent extraction was run.
+
+Add `--scene-shift-x 0.14` to the isolated screening command to reproduce the
+shifted condition. Action bias and scene translation are intentionally mutually
+exclusive. The runner caps planar translations at 20 cm and records root
+positions plus nominal, shifted, stabilized, and final simulator-state hashes.
+The complete protocol, per-task outcomes, artifact paths, limitations, and GPU
+memory observation are in
+[`docs/experiments/libero_spatial_position_shift.md`](docs/experiments/libero_spatial_position_shift.md).
+
 ## State-based isolated LIBERO bridge
 
 The next integration boundary is now implemented as:
@@ -599,10 +637,10 @@ intensity. The actor receives the configured representation and reference base
 action. Critics evaluate the policy output in that same context, while the
 environment receives the composed action.
 
-The oracle and multi-task bridge gates are complete. Before state-based
-always-on residual training begins, the next step is to define disjoint
-training and held-out initial-state sets, configure uniform task sampling for
-training and round-robin sampling for evaluation, and rerun the 30-pair bridge
-baseline if a full bridge-level confirmation is required. VLA-latent
-extraction and learned gating remain separate follow-up steps, with the VLA
-frozen throughout.
+The oracle and multi-task bridge gates are complete, and the position sweep has
+identified +14 cm world x as the candidate environment shift. Before
+state-based always-on residual training begins, the next step is to expose that
+scene shift through the isolated bridge, define disjoint training and held-out
+initial-state sets, and confirm the 30-scenario baseline through the normal
+project evaluator. VLA-latent extraction and learned gating remain separate
+follow-up steps, with the VLA frozen throughout.

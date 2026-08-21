@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replan-steps", type=int, default=5)
     parser.add_argument("--num-steps-wait", type=int, default=10)
     parser.add_argument("--action-bias-x", type=float, default=0.0)
+    parser.add_argument("--scene-shift-x", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output-dir", type=Path, default=Path("/data/libero_screen"))
     return parser.parse_args()
@@ -87,6 +88,7 @@ def build_summary(args: argparse.Namespace, records: list[dict[str, Any]]) -> di
         "trials_per_task": args.num_trials,
         "initial_state_offset": args.initial_state_offset,
         "action_bias_x": args.action_bias_x,
+        "scene_shift_x": args.scene_shift_x,
         "seed": args.seed,
         "total_trials": total_trials,
         "total_successes": total_successes,
@@ -127,6 +129,7 @@ def main() -> None:
             replan_steps=args.replan_steps,
             num_steps_wait=args.num_steps_wait,
             action_bias_x=args.action_bias_x,
+            scene_shift_x=args.scene_shift_x,
             seed=args.seed,
             output_dir=task_output_dir,
         )
