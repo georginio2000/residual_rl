@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -47,3 +48,33 @@ class ProportionalBasePolicy(BasePolicy):
         position, goal = observation[:2], observation[2:]
         action = self.gain * (goal - position) + self.bias
         return np.clip(action, -1.0, 1.0).astype(np.float32)
+
+
+class ObservationActionBasePolicy(BasePolicy):
+    """Read a frozen base action supplied by an environment observation."""
+
+    def __init__(self, action_dim: int, key: str = "base_action") -> None:
+        if action_dim <= 0:
+            raise ValueError("action_dim must be positive")
+        if not key:
+            raise ValueError("base-action observation key cannot be empty")
+        self._action_dim = int(action_dim)
+        self.key = key
+
+    @property
+    def action_dim(self) -> int:
+        return self._action_dim
+
+    def act(self, observation: Mapping[str, Any]) -> np.ndarray:
+        if not isinstance(observation, Mapping):
+            raise TypeError("observation-action policy requires a mapping observation")
+        if self.key not in observation:
+            raise KeyError(f"observation is missing base-action key {self.key!r}")
+        action = np.asarray(observation[self.key])
+        if action.shape != (self.action_dim,):
+            raise ValueError(
+                f"expected {self.key!r} shape ({self.action_dim},), got {action.shape}"
+            )
+        if not np.all(np.isfinite(action)):
+            raise ValueError("base action must contain only finite values")
+        return action.copy()

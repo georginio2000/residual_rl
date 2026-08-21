@@ -7,9 +7,10 @@ specialize a frozen generalist robot policy for precision manipulation:
 executed_action = base_action + gate * correction
 ```
 
-The toy residual-RL experiment and a frozen OpenPI π0.5-LIBERO baseline are
-both validated. OpenPI is served as a frozen remote policy; it is not installed
-in the main project environment and no VLA parameters are fine-tuned.
+The toy residual-RL experiment, a frozen OpenPI π0.5-LIBERO baseline, and an
+isolated state-based LIBERO bridge are validated. OpenPI is served as a frozen
+remote policy; it is not installed in the main project environment and no VLA
+parameters are fine-tuned.
 
 ## Current milestone status
 
@@ -17,7 +18,9 @@ in the main project environment and no VLA parameters are fine-tuned.
 - The full CPU-only test suite passes.
 - The 30,000-step toy residual config was verified on CUDA.
 - Official OpenPI was cloned recursively and pinned exactly.
-- One frozen `pi05_libero` rollout was reproduced at inference batch size 1.
+- Frozen `pi05_libero` evaluation was reproduced at inference batch size 1.
+- The main project evaluated three LIBERO initial states through an isolated
+  state/base-action bridge; all three succeeded.
 - Environment, base-policy, and representation construction now use named,
   extensible backends with mocked CPU-only boundary tests.
 - Residual LIBERO training and VLA-latent extraction have not been started.
@@ -78,8 +81,8 @@ Built-in names are:
 
 | Boundary | Backends | Purpose |
 |---|---|---|
-| Environment | `precision_reach` | Existing toy Gymnasium environment |
-| Base policy | `proportional`, `openpi_websocket` | Toy controller or frozen remote action chunks |
+| Environment | `precision_reach`, `remote_libero` | Local toy task or isolated simulator proxy |
+| Base policy | `proportional`, `observation_action`, `openpi_websocket` | Toy, observation-supplied, or direct remote action |
 | Representation | `identity`, `observation_key` | Flat toy state or a selected mapping feature |
 
 `BackendRegistry` accepts additional builders without importing simulator or
@@ -88,6 +91,9 @@ on a small `infer(observation)` protocol, validates action chunks, issues one
 observation per remote request, and clears cached chunks at episode boundaries.
 The optional `openpi_websocket` builder imports only the lightweight
 `openpi-client` package and gives an actionable error when it is absent.
+The validated LIBERO path instead uses `remote_libero` with
+`observation_action`: its Python 3.8 bridge owns the simulator and OpenPI
+client, so neither dependency enters the Python 3.10 main environment.
 
 For a mapping observation, a state-only representation can be configured as:
 
@@ -262,6 +268,98 @@ The structured result and replay video are written to
 12 GB GPU; it does not establish enough headroom for co-locating additional
 large GPU models.
 
+## State-based isolated LIBERO bridge
+
+The next integration boundary is now implemented as:
+
+```text
+Python 3.10 residual_rl  <-- HTTP/JSON: state + base action -->  Python 3.8 LIBERO client
+                                                                    |
+                                                                    +-- WebSocket/images --> frozen OpenPI server
+```
+
+Images remain inside the LIBERO client. The main environment receives the
+8-D simulator state and the next 7-D frozen action, composes the executed
+action, and returns it to the bridge. This is a state-based path only; no VLA
+latent is exposed.
+
+Two details are required for behavioral parity with the official evaluator:
+
+- MuJoCo/EGL creation, reset, rendering, and stepping all run on one thread.
+- Frozen OpenPI actions remain float64 end to end. The official client returns
+  float64 actions, including small excursions beyond ±1; downcasting them or
+  clipping at ±1 changed the simulated trajectory.
+
+Start the frozen server as above. To reset the server-side JAX policy RNG
+sequence, restart it immediately before the baseline. Minor accelerator-level
+nondeterminism may still remain:
+
+```bash
+cd /root/workspace/openpi
+docker compose -f examples/libero/compose.yml restart openpi_server
+```
+
+Launch the loopback-only bridge:
+
+```bash
+mkdir -p /root/workspace/residual_rl/runs/libero_bridge_state_task0_final
+
+docker run --rm -d \
+  --name residual-libero-bridge \
+  --gpus all \
+  -p 127.0.0.1:8765:8765 \
+  --add-host=host.docker.internal:host-gateway \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e PYOPENGL_PLATFORM=egl \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  -v /root/workspace/openpi:/app:ro \
+  -v /root/workspace/residual_rl:/residual_rl:ro \
+  -v /root/workspace/residual_rl/runs/libero_bridge_state_task0_final:/data \
+  libero /bin/bash -lc \
+  'source /.venv/bin/activate && \
+   python /residual_rl/scripts/openpi/libero_bridge_service.py \
+     --policy-host host.docker.internal \
+     --task-suite-name libero_spatial \
+     --task-id 0 \
+     --seed 7 \
+     --output-dir /data'
+
+curl --fail http://127.0.0.1:8765/health
+```
+
+Run three fixed initial states through the normal project entry point:
+
+```bash
+cd /root/workspace/residual_rl
+.venv/bin/python -m last_millimeter.train \
+  --config configs/libero/frozen_state.yaml
+```
+
+The config's evaluation seeds 10000, 10001, and 10002 select LIBERO initial
+states 0, 1, and 2 respectively. Each policy request contains one observation.
+The bridge writes videos, action/input trace hashes, and `bridge_result.json`;
+the main project writes its usual config, metrics, and summary.
+
+Validated repeated result on the RTX 3060:
+
+| Initial state | Success | Control steps | Inference requests |
+|---:|:---:|---:|---:|
+| 0 | yes | 100 | 20 |
+| 1 | yes | 110 | 22 |
+| 2 | yes | 84 | 17 |
+
+Success was 3/3 with a mean of 98 control steps. Peak sampled VRAM was
+9,622 MiB / 12,288 MiB, leaving 2,666 MiB headroom. Stop the completed bridge
+and frozen server with:
+
+```bash
+docker stop residual-libero-bridge
+cd /root/workspace/openpi
+docker compose -f examples/libero/compose.yml stop openpi_server
+```
+
 ## Experiment modes and next gate
 
 - `frozen`: evaluate the frozen base policy.
@@ -274,6 +372,9 @@ intensity. The actor receives the configured representation and reference base
 action. Critics evaluate the policy output in that same context, while the
 environment receives the composed action.
 
-The next milestone may add a state-based LIBERO adapter and collect repeated
-frozen baselines. Residual LIBERO training and VLA-latent extraction should
-remain separate follow-up steps, with the VLA frozen throughout.
+Task 0 succeeded on all three tested initial states, so it does not yet provide
+room to demonstrate residual improvement. The next gate is to screen a small
+set of frozen LIBERO tasks/initial states and select one with useful but
+imperfect base-policy success. State-based always-on residual training can then
+begin on that task with dense reward diagnostics. VLA-latent extraction and
+learned gating remain separate follow-up steps, with the VLA frozen throughout.

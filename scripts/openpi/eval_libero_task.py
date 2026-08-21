@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
 import logging
 import math
 from pathlib import Path
+from typing import Any
 
 import imageio
 from libero.libero import benchmark, get_libero_path
@@ -31,6 +33,21 @@ MAX_STEPS = {
     "libero_10": 520,
     "libero_90": 400,
 }
+
+
+def update_array_digest(digest: Any, key: str, value: np.ndarray) -> None:
+    array = np.ascontiguousarray(value)
+    digest.update(key.encode("utf-8"))
+    digest.update(str(array.dtype).encode("ascii"))
+    digest.update(np.asarray(array.shape, dtype=np.int64).tobytes())
+    digest.update(array.tobytes())
+
+
+def update_observation_digest(digest: Any, observation: dict) -> None:
+    update_array_digest(digest, "image", observation["observation/image"])
+    update_array_digest(digest, "wrist", observation["observation/wrist_image"])
+    update_array_digest(digest, "state", observation["observation/state"])
+    digest.update(str(observation["prompt"]).encode("utf-8"))
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,6 +117,10 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
             action_plan = collections.deque()
             replay_images = []
             inference_requests = 0
+            observation_digest = hashlib.sha256()
+            action_digest = hashlib.sha256()
+            first_action = None
+            action_dtype = None
             done = False
             step = 0
 
@@ -137,7 +158,12 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
                         "prompt": str(task.language),
                     }
                     # One observation per request: frozen inference batch size is 1.
+                    update_observation_digest(observation_digest, model_observation)
                     action_chunk = np.asarray(client.infer(model_observation)["actions"])
+                    update_array_digest(action_digest, "actions", action_chunk)
+                    if first_action is None:
+                        first_action = action_chunk[0].tolist()
+                        action_dtype = str(action_chunk.dtype)
                     inference_requests += 1
                     if len(action_chunk) < args.replan_steps:
                         raise ValueError(
@@ -165,6 +191,10 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
                     "success": bool(done),
                     "steps": step,
                     "inference_requests": inference_requests,
+                    "observation_trace_sha256": observation_digest.hexdigest(),
+                    "action_trace_sha256": action_digest.hexdigest(),
+                    "action_dtype": action_dtype,
+                    "first_action": first_action,
                     "video": str(video_path),
                 }
             )

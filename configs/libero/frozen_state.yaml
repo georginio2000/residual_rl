@@ -1,0 +1,32 @@
+experiment:
+  name: libero_spatial_task0_frozen_state
+  mode: frozen
+  seed: 0
+  device: cpu
+  output_dir: runs/libero_spatial_task0_frozen_state
+
+environment:
+  backend: remote_libero
+  options:
+    endpoint: http://127.0.0.1:8765
+    observation_dim: 8
+    action_dim: 7
+    action_low: -2.0
+    action_high: 2.0
+    action_dtype: float64
+    timeout: 180.0
+
+base_policy:
+  backend: observation_action
+  options:
+    key: base_action
+
+representation:
+  backend: observation_key
+  options:
+    key: observation/state
+    output_dim: 8
+
+training:
+  total_steps: 0
+  evaluation_episodes: 3

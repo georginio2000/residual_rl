@@ -10,7 +10,7 @@ from last_millimeter.config import (
 )
 from last_millimeter.envs import PrecisionReachEnv
 from last_millimeter.factory import BackendRegistry, make_components, make_environment
-from last_millimeter.policies import BasePolicy
+from last_millimeter.policies import BasePolicy, ObservationActionBasePolicy
 from last_millimeter.representations import ObservationKeyEncoder, RepresentationEncoder
 
 
@@ -69,3 +69,13 @@ def test_observation_key_encoder_copies_flat_state() -> None:
     source[0] = 99.0
 
     np.testing.assert_array_equal(encoded, [1.0, 2.0, 3.0])
+
+
+def test_observation_action_policy_copies_supplied_base_action() -> None:
+    policy = ObservationActionBasePolicy(action_dim=2)
+    source = np.asarray([0.25, -0.5], dtype=np.float32)
+
+    action = policy.act({"base_action": source})
+    source[0] = 99.0
+
+    np.testing.assert_array_equal(action, [0.25, -0.5])

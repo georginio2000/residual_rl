@@ -79,15 +79,18 @@ class ActionComposer:
         return np.zeros(self.policy_output_dim, dtype=np.float32)
 
     def compose(self, base_action: np.ndarray, policy_output: np.ndarray | None) -> Intervention:
-        base_action = np.asarray(base_action, dtype=np.float32)
+        base_action = np.asarray(base_action)
         if base_action.shape != (self.action_dim,):
             raise ValueError(f"base action must have shape ({self.action_dim},)")
+        if not np.all(np.isfinite(base_action)):
+            raise ValueError("base action must contain only finite values")
 
         if self.mode is ControlMode.FROZEN:
             executed = base_action
-            correction = np.zeros_like(base_action)
+            correction = np.zeros(self.action_dim, dtype=np.float32)
             gate = 0.0
         else:
+            base_action = base_action.astype(np.float32, copy=False)
             if policy_output is None:
                 raise ValueError(f"policy output is required in {self.mode.value} mode")
             policy_output = np.asarray(policy_output, dtype=np.float32)
@@ -108,7 +111,9 @@ class ActionComposer:
                 gate = float(np.clip(policy_output[-1], 0.0, 1.0))
                 executed = base_action + gate * correction
 
-        executed = np.clip(executed, self.action_low, self.action_high).astype(np.float32)
+        executed = np.clip(executed, self.action_low, self.action_high)
+        if self.mode is not ControlMode.FROZEN:
+            executed = executed.astype(np.float32)
         return Intervention(executed, correction.astype(np.float32), gate)
 
     def compose_tensor(self, base_action: Tensor, policy_output: Tensor) -> Tensor:
@@ -139,4 +144,3 @@ class ActionComposer:
             gate = np.asarray([rng.uniform(0.0, 1.0)], dtype=np.float32)
             return np.concatenate((correction, gate))
         return np.empty(0, dtype=np.float32)
-

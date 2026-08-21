@@ -55,8 +55,8 @@ def evaluate_components(
             correction_norms.append(float(np.linalg.norm(intervention.correction)))
             gates.append(intervention.gate)
             episode_length += 1
-            success = bool(info["success"])
-            final_distance = float(info["distance"])
+            success = bool(info.get("success", terminated))
+            final_distance = float(info.get("distance", float("nan")))
 
             if terminated or truncated:
                 break

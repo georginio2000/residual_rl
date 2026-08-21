@@ -38,10 +38,10 @@ def test_gated_composition_reports_intervention() -> None:
 
 def test_frozen_composition_ignores_policy_output() -> None:
     composer = ActionComposer(ControlMode.FROZEN, action_dim=2, residual_scale=0.3)
-    base = np.asarray([0.25, -0.5], dtype=np.float32)
+    base = np.asarray([0.25, -0.5], dtype=np.float64)
     result = composer.compose(base, None)
 
     np.testing.assert_array_equal(result.executed_action, base)
+    assert result.executed_action.dtype == np.float64
     np.testing.assert_array_equal(result.correction, np.zeros(2, dtype=np.float32))
     assert result.gate == 0.0
-

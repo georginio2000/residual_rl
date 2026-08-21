@@ -16,11 +16,12 @@ from last_millimeter.config import (
     ProjectConfig,
     RepresentationConfig,
 )
-from last_millimeter.envs import PrecisionReachEnv
+from last_millimeter.envs import PrecisionReachEnv, RemoteLiberoEnv
 from last_millimeter.policies import (
     ActionComposer,
     BasePolicy,
     ControlMode,
+    ObservationActionBasePolicy,
     OpenPIClientBasePolicy,
     ProportionalBasePolicy,
 )
@@ -81,7 +82,9 @@ class BackendRegistry:
     def with_defaults(cls) -> BackendRegistry:
         registry = cls()
         registry.register_environment("precision_reach", _make_precision_reach)
+        registry.register_environment("remote_libero", _make_remote_libero)
         registry.register_base_policy("proportional", _make_proportional_policy)
+        registry.register_base_policy("observation_action", _make_observation_action_policy)
         registry.register_base_policy("openpi_websocket", _make_openpi_websocket_policy)
         registry.register_representation("identity", _make_identity_encoder)
         registry.register_representation("observation_key", _make_observation_key_encoder)
@@ -115,12 +118,44 @@ def _make_precision_reach(config: EnvironmentConfig) -> Environment:
     )
 
 
+def _make_remote_libero(config: EnvironmentConfig) -> Environment:
+    options = dict(config.options)
+    endpoint = str(options.pop("endpoint", "http://127.0.0.1:8765"))
+    observation_dim = int(options.pop("observation_dim", 8))
+    action_dim = int(options.pop("action_dim", 7))
+    action_low = float(options.pop("action_low", -1.0))
+    action_high = float(options.pop("action_high", 1.0))
+    action_dtype = str(options.pop("action_dtype", "float64"))
+    timeout = float(options.pop("timeout", 120.0))
+    if options:
+        raise ValueError(f"unknown remote_libero options: {sorted(options)}")
+    return RemoteLiberoEnv(
+        endpoint=endpoint,
+        observation_dim=observation_dim,
+        action_dim=action_dim,
+        action_low=action_low,
+        action_high=action_high,
+        action_dtype=action_dtype,
+        timeout=timeout,
+    )
+
+
 def _make_proportional_policy(
     config: BasePolicyConfig, context: BackendContext
 ) -> BasePolicy:
     if context.observation_dim != 4 or context.action_dim != 2:
         raise ValueError("proportional backend requires observation_dim=4 and action_dim=2")
     return ProportionalBasePolicy(gain=config.gain, bias=tuple(config.bias))
+
+
+def _make_observation_action_policy(
+    config: BasePolicyConfig, context: BackendContext
+) -> BasePolicy:
+    options = dict(config.options)
+    key = str(options.pop("key", "base_action"))
+    if options:
+        raise ValueError(f"unknown observation_action options: {sorted(options)}")
+    return ObservationActionBasePolicy(context.action_dim, key)
 
 
 def _make_openpi_websocket_policy(
