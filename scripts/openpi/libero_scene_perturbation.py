@@ -13,7 +13,14 @@ MAX_ABS_PLANAR_SHIFT_METERS = 0.20
 
 def validate_scene_translation(x_meters: float, y_meters: float = 0.0) -> np.ndarray:
     """Return a finite, bounded xyz translation in world-frame meters."""
-    translation = np.asarray([x_meters, y_meters, 0.0], dtype=np.float64)
+    return validate_scene_translation_vector([x_meters, y_meters, 0.0])
+
+
+def validate_scene_translation_vector(value: Any) -> np.ndarray:
+    """Validate an xyz translation received through the bridge protocol."""
+    translation = np.asarray(value, dtype=np.float64)
+    if translation.shape != (3,):
+        raise ValueError(f"scene translation must have shape (3,), got {translation.shape}")
     if not np.all(np.isfinite(translation)):
         raise ValueError("scene translation must contain only finite values")
     if np.any(np.abs(translation[:2]) > MAX_ABS_PLANAR_SHIFT_METERS):
@@ -21,9 +28,9 @@ def validate_scene_translation(x_meters: float, y_meters: float = 0.0) -> np.nda
             "planar scene translation cannot exceed "
             f"{MAX_ABS_PLANAR_SHIFT_METERS:.2f} m per axis"
         )
-    if not math.isclose(float(translation[2]), 0.0):
+    if not math.isclose(float(translation[2]), 0.0, abs_tol=1e-12):
         raise ValueError("scene translation must remain planar")
-    return translation
+    return translation.copy()
 
 
 def capture_scene_root_positions(env: Any) -> dict[str, dict[str, list[float]]]:
@@ -49,14 +56,7 @@ def translate_libero_scene(
     translation: np.ndarray,
 ) -> tuple[dict, dict[str, Any]]:
     """Translate all movable objects and fixtures, preserving scene relations."""
-    translation = np.asarray(translation, dtype=np.float64)
-    if translation.shape != (3,):
-        raise ValueError(f"scene translation must have shape (3,), got {translation.shape}")
-    validated_translation = validate_scene_translation(
-        float(translation[0]), float(translation[1])
-    )
-    if not np.array_equal(translation, validated_translation):
-        raise ValueError("scene translation must be planar with zero z displacement")
+    translation = validate_scene_translation_vector(translation)
 
     inner = env.env
     before = capture_scene_root_positions(env)

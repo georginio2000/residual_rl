@@ -12,6 +12,9 @@ import numpy as np
 from gymnasium import spaces
 
 
+MAX_ABS_PLANAR_SCENE_TRANSLATION_METERS = 0.20
+
+
 class JsonTransport(Protocol):
     """Request/response transport used by :class:`RemoteLiberoEnv`."""
 
@@ -67,6 +70,7 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         action_high: float = 1.0,
         action_dtype: str = "float64",
         action_bias: list[float] | tuple[float, ...] | np.ndarray | None = None,
+        scene_translation: Sequence[float] | np.ndarray | None = None,
         task_context_dim: int = 0,
         task_ids: Sequence[int] | None = None,
         initial_state_ids: Sequence[int] | None = None,
@@ -104,6 +108,35 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         if not np.all(np.isfinite(self.action_bias)):
             raise ValueError("remote LIBERO action_bias must contain only finite values")
         self.action_bias = self.action_bias.copy()
+        self._scene_translation_configured = scene_translation is not None
+        if scene_translation is None:
+            self.scene_translation = np.zeros(3, dtype=np.float64)
+        else:
+            self.scene_translation = np.asarray(scene_translation, dtype=np.float64)
+        if self.scene_translation.shape != (3,):
+            raise ValueError(
+                "remote LIBERO scene_translation must have shape (3,), "
+                f"got {self.scene_translation.shape}"
+            )
+        if not np.all(np.isfinite(self.scene_translation)):
+            raise ValueError(
+                "remote LIBERO scene_translation must contain only finite values"
+            )
+        if not np.isclose(self.scene_translation[2], 0.0, atol=1e-12):
+            raise ValueError("remote LIBERO scene_translation must be planar")
+        if np.any(
+            np.abs(self.scene_translation[:2])
+            > MAX_ABS_PLANAR_SCENE_TRANSLATION_METERS
+        ):
+            raise ValueError(
+                "remote LIBERO planar scene_translation cannot exceed "
+                f"{MAX_ABS_PLANAR_SCENE_TRANSLATION_METERS:.2f} m per axis"
+            )
+        if np.any(self.action_bias != 0.0) and np.any(self.scene_translation != 0.0):
+            raise ValueError(
+                "remote LIBERO action_bias and scene_translation cannot both be nonzero"
+            )
+        self.scene_translation = self.scene_translation.copy()
         self.task_context_dim = int(task_context_dim)
         self.task_ids = self._validate_ids("task_ids", task_ids)
         self.initial_state_ids = self._validate_ids("initial_state_ids", initial_state_ids)
@@ -201,6 +234,12 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
     ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         super().reset(seed=seed)
         reset_options = dict(options or {})
+        if "scene_translation" in reset_options:
+            raise ValueError(
+                "remote LIBERO scene_translation is fixed by environment configuration"
+            )
+        if self._scene_translation_configured:
+            reset_options["scene_translation"] = self.scene_translation.tolist()
         schedule_index = self._reset_count
         if self.task_ids and "task_id" not in reset_options:
             if self.sampling == "round_robin":

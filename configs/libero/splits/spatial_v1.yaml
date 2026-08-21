@@ -1,0 +1,10 @@
+name: libero_spatial_initial_states_v1
+openpi_commit: 15a9616a00943ada6c20a0f158e3adb39df2ccac
+libero_commit: f78abd68ee283de9f9be3c8f7e2a9ad60246e95c
+states_per_task: 50
+
+# States 0-2 were used to select the +14 cm perturbation and are not held out.
+selection: [0, 1, 2]
+train: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+validation: [40, 41, 42, 43, 44]
+test: [45, 46, 47, 48, 49]

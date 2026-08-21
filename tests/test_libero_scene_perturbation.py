@@ -80,6 +80,22 @@ def test_scene_translation_rejects_unsafe_values(value: float) -> None:
         perturbation.validate_scene_translation(value)
 
 
+@pytest.mark.parametrize(
+    "translation",
+    [
+        [0.0, 0.0],
+        [0.0, 0.0, 0.01],
+        [0.0, float("nan"), 0.0],
+        [0.0, -0.201, 0.0],
+    ],
+)
+def test_bridge_scene_translation_vector_rejects_invalid_values(
+    translation: list[float],
+) -> None:
+    with pytest.raises(ValueError, match="scene translation"):
+        perturbation.validate_scene_translation_vector(translation)
+
+
 def test_scene_translation_moves_objects_and_fixtures_together() -> None:
     env = FakeEnv()
     translation = perturbation.validate_scene_translation(0.05)

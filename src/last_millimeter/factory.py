@@ -129,6 +129,7 @@ def _make_remote_libero(config: EnvironmentConfig) -> Environment:
     action_high = float(options.pop("action_high", 1.0))
     action_dtype = str(options.pop("action_dtype", "float64"))
     action_bias = options.pop("action_bias", None)
+    scene_translation = options.pop("scene_translation", None)
     task_context_dim = int(options.pop("task_context_dim", 0))
     task_ids = options.pop("task_ids", None)
     initial_state_ids = options.pop("initial_state_ids", None)
@@ -144,6 +145,7 @@ def _make_remote_libero(config: EnvironmentConfig) -> Environment:
         action_high=action_high,
         action_dtype=action_dtype,
         action_bias=action_bias,
+        scene_translation=scene_translation,
         task_context_dim=task_context_dim,
         task_ids=task_ids,
         initial_state_ids=initial_state_ids,

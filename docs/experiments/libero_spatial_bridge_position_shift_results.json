@@ -1,0 +1,40 @@
+{
+  "experiment": "frozen_pi05_libero_spatial_bridge_world_x_scene_shift",
+  "date_utc": "2026-08-21",
+  "openpi_commit": "15a9616a00943ada6c20a0f158e3adb39df2ccac",
+  "libero_commit": "f78abd68ee283de9f9be3c8f7e2a9ad60246e95c",
+  "checkpoint": "gs://openpi-assets/checkpoints/pi05_libero",
+  "batch_size": 1,
+  "action_bias_x": 0.0,
+  "initial_state_split": "configs/libero/splits/spatial_v1.yaml",
+  "selection_state_ids": [0, 1, 2],
+  "zero_shift": {
+    "config": "configs/libero/spatial_suite_scene_shift_x_0p000_frozen_state.yaml",
+    "artifact_dir": "runs/libero_bridge_spatial_scene_shift_x_0p000_selection",
+    "successes": 29,
+    "trials": 30,
+    "success_rate": 0.9666666666666667,
+    "wilson_95_percent": [0.8332960900859082, 0.9940914096183874],
+    "task_state_outcomes": ["SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SSS", "SFS"]
+  },
+  "shift_x_0p14_m": {
+    "config": "configs/libero/spatial_suite_scene_shift_x_0p140_frozen_state.yaml",
+    "artifact_dir": "runs/libero_bridge_spatial_scene_shift_x_0p140_selection",
+    "successes": 18,
+    "trials": 30,
+    "success_rate": 0.6,
+    "wilson_95_percent": [0.42320360253322475, 0.7540937188319815],
+    "task_state_outcomes": ["SSS", "FSS", "FFF", "SSS", "FFF", "SSS", "FFF", "SFS", "SSF", "SSS"]
+  },
+  "instrumentation": {
+    "episodes_checked": 60,
+    "maximum_root_translation_error_m": 0.0,
+    "zero_shift_state_hashes_unchanged": true,
+    "shifted_state_hashes_changed": true
+  },
+  "gpu_post_evaluation_sample_mib": {
+    "used": 9084,
+    "free": 2827,
+    "total": 12288
+  }
+}

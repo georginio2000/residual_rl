@@ -26,10 +26,18 @@ import numpy as np
 from openpi_client import image_tools
 from openpi_client import websocket_client_policy
 
+from libero_scene_perturbation import (
+    capture_scene_root_positions,
+    translate_libero_scene,
+    validate_scene_translation_vector,
+)
+
 
 LIBERO_DUMMY_ACTION = [0.0] * 6 + [-1.0]
 LIBERO_ENV_RESOLUTION = 256
 LIBERO_ACTION_DIM = 7
+OPENPI_COMMIT = "15a9616a00943ada6c20a0f158e3adb39df2ccac"
+LIBERO_COMMIT = "f78abd68ee283de9f9be3c8f7e2a9ad60246e95c"
 MAX_STEPS = {
     "libero_spatial": 220,
     "libero_object": 280,
@@ -52,6 +60,12 @@ def update_observation_digest(digest: Any, observation: dict) -> None:
     update_array_digest(digest, "wrist", observation["observation/wrist_image"])
     update_array_digest(digest, "state", observation["observation/state"])
     digest.update(str(observation["prompt"]).encode("utf-8"))
+
+
+def sim_state_sha256(state: np.ndarray) -> str:
+    digest = hashlib.sha256()
+    update_array_digest(digest, "sim_state", state)
+    return digest.hexdigest()
 
 
 def parse_args() -> argparse.Namespace:
@@ -156,6 +170,7 @@ class LiberoOpenPIBridge:
         self.episode_return = 0.0
         self.replay_images = []
         self.episode_results = []
+        self.scene_translation_record = None
 
     def _select_task(self, task_id: int) -> None:
         if task_id not in self.task_ids:
@@ -286,12 +301,35 @@ class LiberoOpenPIBridge:
 
         self.env.reset()
         observation = self.env.set_init_state(self.initial_states[initial_state_id])
+        nominal_sim_state = np.asarray(self.env.get_sim_state()).copy()
+        scene_translation = validate_scene_translation_vector(
+            options.get("scene_translation", [0.0, 0.0, 0.0])
+        )
+        observation, scene_translation_record = translate_libero_scene(
+            self.env,
+            scene_translation,
+        )
+        shifted_sim_state = np.asarray(self.env.get_sim_state()).copy()
         for _ in range(self.args.num_steps_wait):
             observation, _, done, _ = self.env.step(LIBERO_DUMMY_ACTION)
             if done:
                 raise RuntimeError("LIBERO task terminated during stabilization steps")
+        stabilized_sim_state = np.asarray(self.env.get_sim_state()).copy()
+        scene_translation_record["stabilized_root_positions_m"] = (
+            capture_scene_root_positions(self.env)
+        )
+        scene_translation_record["nominal_sim_state_sha256"] = sim_state_sha256(
+            nominal_sim_state
+        )
+        scene_translation_record["shifted_sim_state_sha256"] = sim_state_sha256(
+            shifted_sim_state
+        )
+        scene_translation_record["stabilized_sim_state_sha256"] = sim_state_sha256(
+            stabilized_sim_state
+        )
 
         self.observation = observation
+        self.scene_translation_record = scene_translation_record
         self.action_plan.clear()
         self.active = True
         self.initial_state_id = initial_state_id
@@ -314,6 +352,10 @@ class LiberoOpenPIBridge:
                 "task_description": str(self.task.language),
                 "initial_state_id": initial_state_id,
                 "stabilization_steps": self.args.num_steps_wait,
+                "scene_translation_m": scene_translation.tolist(),
+                "maximum_root_translation_error_m": scene_translation_record[
+                    "maximum_root_translation_error_m"
+                ],
             },
         }
 
@@ -355,6 +397,7 @@ class LiberoOpenPIBridge:
                 "control_steps": self.control_steps,
                 "total_steps": self.control_steps + self.args.num_steps_wait,
                 "inference_requests": self.inference_requests,
+                "scene_translation_m": self.scene_translation_record["translation_m"],
             },
         }
         if terminated or truncated:
@@ -367,8 +410,13 @@ class LiberoOpenPIBridge:
     def _finalize(self, *, success: bool, reason: str) -> None:
         if not self.active:
             return
-        if self.task_id is None or self.task is None:
+        if self.task_id is None or self.task is None or self.env is None:
             raise RuntimeError("cannot finalize without a selected LIBERO task")
+        if self.scene_translation_record is None:
+            raise RuntimeError("cannot finalize without a scene translation record")
+        self.scene_translation_record["final_sim_state_sha256"] = sim_state_sha256(
+            np.asarray(self.env.get_sim_state())
+        )
         suffix = "success" if success else "failure"
         video_name = (
             f"task_{self.task_id}_episode_{self.episode_index}_{suffix}.mp4"
@@ -393,6 +441,7 @@ class LiberoOpenPIBridge:
             "action_dtype": self.action_dtype,
             "first_action": self.first_action,
             "first_executed_action": self.first_executed_action,
+            "scene_translation": self.scene_translation_record,
             "video": str(video_path) if self.replay_images else None,
         }
         self.episode_results.append(result)
@@ -421,9 +470,20 @@ class LiberoOpenPIBridge:
         result = {
             "policy": "frozen pi05_libero",
             "batch_size": 1,
+            "openpi_commit": OPENPI_COMMIT,
+            "libero_commit": LIBERO_COMMIT,
             "representation": "LIBERO environment state and task one-hot",
             "task_suite": self.args.task_suite_name,
             "task_ids": list(self.task_ids),
+            "scene_translations_m": [
+                list(translation)
+                for translation in sorted(
+                    {
+                        tuple(episode["scene_translation"]["translation_m"])
+                        for episode in self.episode_results
+                    }
+                )
+            ],
             "tasks": task_results,
             "episodes": self.episode_results,
             "trials": len(self.episode_results),

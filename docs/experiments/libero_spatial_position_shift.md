@@ -148,6 +148,10 @@ environment shift for a later residual-learning study. This result does **not**
 yet show that residual RL can recover the lost performance; no residual LIBERO
 training was run.
 
+The subsequent normal-project bridge confirmation measured 29/30 at zero shift
+and 18/30 (60.0%) at +14 cm. Its protocol and results are documented in
+`docs/experiments/libero_spatial_bridge_position_shift.md`.
+
 ## Interpretation and limitations
 
 This perturbation changes the whole semantic scene relative to the fixed robot,

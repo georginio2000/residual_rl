@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import yaml
 
 from last_millimeter.config import load_config
 from last_millimeter.envs import RemoteLiberoEnv
@@ -143,6 +144,79 @@ def test_remote_libero_config_forwards_action_bias() -> None:
     )
 
 
+def test_remote_libero_forwards_fixed_scene_translation_on_reset() -> None:
+    transport = MockTransport()
+    env = RemoteLiberoEnv(
+        endpoint="unused",
+        scene_translation=[0.14, 0.0, 0.0],
+        transport=transport,
+    )
+
+    env.reset(seed=3, options={"tag": "test"})
+
+    assert transport.calls[0] == (
+        "/reset",
+        {
+            "seed": 3,
+            "options": {
+                "tag": "test",
+                "scene_translation": [0.14, 0.0, 0.0],
+            },
+        },
+    )
+
+
+def test_remote_libero_config_forwards_scene_translation() -> None:
+    config_path = (
+        Path(__file__).parents[1]
+        / "configs/libero/spatial_suite_scene_shift_x_0p140_frozen_state.yaml"
+    )
+    environment = make_environment(load_config(config_path))
+
+    np.testing.assert_array_equal(environment.scene_translation, [0.14, 0.0, 0.0])
+
+
+@pytest.mark.parametrize(
+    "scene_translation",
+    [
+        [0.0, 0.0],
+        [0.0, 0.0, 0.01],
+        [float("nan"), 0.0, 0.0],
+        [0.201, 0.0, 0.0],
+    ],
+)
+def test_remote_libero_rejects_invalid_scene_translation(
+    scene_translation: list[float],
+) -> None:
+    with pytest.raises(ValueError, match="scene_translation"):
+        RemoteLiberoEnv(
+            endpoint="unused",
+            scene_translation=scene_translation,
+            transport=MockTransport(),
+        )
+
+
+def test_remote_libero_rejects_scene_translation_with_action_bias() -> None:
+    with pytest.raises(ValueError, match="cannot both be nonzero"):
+        RemoteLiberoEnv(
+            endpoint="unused",
+            action_bias=[0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            scene_translation=[0.14, 0.0, 0.0],
+            transport=MockTransport(),
+        )
+
+
+def test_remote_libero_rejects_per_reset_scene_translation_override() -> None:
+    env = RemoteLiberoEnv(
+        endpoint="unused",
+        scene_translation=[0.14, 0.0, 0.0],
+        transport=MockTransport(),
+    )
+
+    with pytest.raises(ValueError, match="fixed by environment configuration"):
+        env.reset(options={"scene_translation": [0.0, 0.0, 0.0]})
+
+
 def test_remote_libero_round_robin_covers_task_state_product() -> None:
     transport = MultiTaskMockTransport(task_context_dim=10)
     env = RemoteLiberoEnv(
@@ -202,6 +276,8 @@ def test_oracle_offset_cancels_remote_action_bias() -> None:
         "spatial_suite_frozen_state.yaml",
         "spatial_suite_bias_x_0p150_frozen_state.yaml",
         "spatial_suite_bias_x_0p150_oracle_state.yaml",
+        "spatial_suite_scene_shift_x_0p000_frozen_state.yaml",
+        "spatial_suite_scene_shift_x_0p140_frozen_state.yaml",
     ],
 )
 def test_frozen_libero_config_builds_without_connecting(config_name: str) -> None:
@@ -218,3 +294,21 @@ def test_frozen_libero_config_builds_without_connecting(config_name: str) -> Non
         assert isinstance(components.encoder, ObservationKeyEncoder)
     assert components.composer.action_dim == 7
     assert components.agent is None
+
+
+def test_spatial_initial_state_split_is_disjoint_and_complete() -> None:
+    split_path = (
+        Path(__file__).parents[1] / "configs/libero/splits/spatial_v1.yaml"
+    )
+    with split_path.open(encoding="utf-8") as handle:
+        split = yaml.safe_load(handle)
+
+    partitions = [
+        set(split[name]) for name in ("selection", "train", "validation", "test")
+    ]
+    assert all(
+        left.isdisjoint(right)
+        for index, left in enumerate(partitions)
+        for right in partitions[index + 1 :]
+    )
+    assert set().union(*partitions) == set(range(split["states_per_task"]))
