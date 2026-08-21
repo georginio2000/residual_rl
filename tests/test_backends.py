@@ -11,7 +11,11 @@ from last_millimeter.config import (
 from last_millimeter.envs import PrecisionReachEnv
 from last_millimeter.factory import BackendRegistry, make_components, make_environment
 from last_millimeter.policies import BasePolicy, ObservationActionBasePolicy
-from last_millimeter.representations import ObservationKeyEncoder, RepresentationEncoder
+from last_millimeter.representations import (
+    ConcatenatedObservationEncoder,
+    ObservationKeyEncoder,
+    RepresentationEncoder,
+)
 
 
 class MockBasePolicy(BasePolicy):
@@ -79,3 +83,28 @@ def test_observation_action_policy_copies_supplied_base_action() -> None:
     source[0] = 99.0
 
     np.testing.assert_array_equal(action, [0.25, -0.5])
+
+
+def test_observation_action_policy_applies_fixed_oracle_offset() -> None:
+    policy = ObservationActionBasePolicy(action_dim=2, offset=[-0.15, 0.0])
+
+    action = policy.act({"base_action": np.asarray([0.25, -0.5], dtype=np.float64)})
+
+    np.testing.assert_allclose(action, [0.10, -0.5])
+    assert action.dtype == np.float64
+
+
+def test_concatenated_observation_encoder_preserves_configured_order() -> None:
+    encoder = ConcatenatedObservationEncoder(
+        {"observation/state": 2, "task_context": 3}
+    )
+
+    encoded = encoder.encode(
+        {
+            "observation/state": [0.25, -0.5],
+            "task_context": [0.0, 1.0, 0.0],
+        }
+    )
+
+    np.testing.assert_array_equal(encoded, [0.25, -0.5, 0.0, 1.0, 0.0])
+    assert encoder.output_dim == 5

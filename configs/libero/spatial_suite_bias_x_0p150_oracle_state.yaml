@@ -1,0 +1,39 @@
+experiment:
+  name: libero_spatial_suite_bias_x_0p150_oracle_state
+  mode: frozen
+  seed: 0
+  device: cpu
+  output_dir: runs/libero_spatial_suite_bias_x_0p150_oracle_state
+
+environment:
+  backend: remote_libero
+  options:
+    endpoint: http://127.0.0.1:8765
+    observation_dim: 8
+    action_dim: 7
+    action_low: -2.0
+    action_high: 2.0
+    action_dtype: float64
+    action_bias: [0.15, 0, 0, 0, 0, 0, 0]
+    task_context_dim: 10
+    task_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    initial_state_ids: [0, 1, 2]
+    sampling: round_robin
+    timeout: 180.0
+
+base_policy:
+  backend: observation_action
+  options:
+    key: base_action
+    offset: [-0.15, 0, 0, 0, 0, 0, 0]
+
+representation:
+  backend: observation_keys
+  options:
+    feature_dims:
+      observation/state: 8
+      task_context: 10
+
+training:
+  total_steps: 0
+  evaluation_episodes: 30

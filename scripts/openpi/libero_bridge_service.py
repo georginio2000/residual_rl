@@ -1,4 +1,4 @@
-"""Serve one LIBERO task and frozen OpenPI actions over HTTP/JSON.
+"""Serve LIBERO tasks and frozen OpenPI actions over HTTP/JSON.
 
 Run this service inside the isolated OpenPI LIBERO client image. The main
 residual_rl environment receives only simulator state and a frozen base action;
@@ -65,13 +65,32 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(MAX_STEPS),
         default="libero_spatial",
     )
-    parser.add_argument("--task-id", type=int, default=0)
+    parser.add_argument("--task-id", type=int)
+    parser.add_argument(
+        "--task-ids",
+        type=parse_task_ids,
+        help="comma-separated allowed task IDs; defaults to task 0",
+    )
     parser.add_argument("--resize-size", type=int, default=224)
     parser.add_argument("--replan-steps", type=int, default=5)
     parser.add_argument("--num-steps-wait", type=int, default=10)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output-dir", type=Path, default=Path("/data/libero_bridge"))
     return parser.parse_args()
+
+
+def parse_task_ids(value: str) -> tuple[int, ...]:
+    try:
+        task_ids = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("task IDs must be comma-separated integers") from exc
+    if not task_ids:
+        raise argparse.ArgumentTypeError("at least one task ID is required")
+    if len(set(task_ids)) != len(task_ids):
+        raise argparse.ArgumentTypeError("task IDs must be unique")
+    if any(task_id < 0 for task_id in task_ids):
+        raise argparse.ArgumentTypeError("task IDs cannot be negative")
+    return task_ids
 
 
 def quat_to_axis_angle(quat: np.ndarray) -> np.ndarray:
@@ -107,16 +126,25 @@ class LiberoOpenPIBridge:
         self.args = args
         self.args.output_dir.mkdir(parents=True, exist_ok=True)
         np.random.seed(args.seed)
+        self.rng = np.random.default_rng(args.seed)
         self.task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
-        if not 0 <= args.task_id < self.task_suite.n_tasks:
-            raise ValueError(f"task_id must be in [0, {self.task_suite.n_tasks})")
-        self.task = self.task_suite.get_task(args.task_id)
-        self.initial_states = self.task_suite.get_task_init_states(args.task_id)
+        if args.task_id is not None and args.task_ids is not None:
+            raise ValueError("use either --task-id or --task-ids, not both")
+        self.task_ids = tuple(
+            args.task_ids
+            if args.task_ids is not None
+            else [args.task_id if args.task_id is not None else 0]
+        )
+        if any(not 0 <= task_id < self.task_suite.n_tasks for task_id in self.task_ids):
+            raise ValueError(f"task IDs must be in [0, {self.task_suite.n_tasks})")
         self.policy = websocket_client_policy.WebsocketClientPolicy(
             args.policy_host,
             args.policy_port,
         )
-        self.env = make_environment(self.task, args.seed)
+        self.task_id = None
+        self.task = None
+        self.initial_states = None
+        self.env = None
         self.action_plan = collections.deque()
         self.observation = None
         self.active = False
@@ -129,6 +157,25 @@ class LiberoOpenPIBridge:
         self.replay_images = []
         self.episode_results = []
 
+    def _select_task(self, task_id: int) -> None:
+        if task_id not in self.task_ids:
+            raise ValueError(f"task_id must be one of {list(self.task_ids)}")
+        if self.task_id == task_id and self.env is not None:
+            return
+        if self.env is not None:
+            self.env.close()
+        self.task_id = task_id
+        self.task = self.task_suite.get_task(task_id)
+        self.initial_states = self.task_suite.get_task_init_states(task_id)
+        self.env = make_environment(self.task, self.args.seed)
+
+    def _task_context(self) -> np.ndarray:
+        if self.task_id is None:
+            raise RuntimeError("no LIBERO task is selected")
+        context = np.zeros(self.task_suite.n_tasks, dtype=np.float32)
+        context[self.task_id] = 1.0
+        return context
+
     def _state(self, observation: dict) -> np.ndarray:
         return np.concatenate(
             (
@@ -139,6 +186,8 @@ class LiberoOpenPIBridge:
         )
 
     def _model_observation(self, observation: dict) -> dict:
+        if self.task is None:
+            raise RuntimeError("no LIBERO task is selected")
         image = np.ascontiguousarray(observation["agentview_image"][::-1, ::-1])
         wrist_image = np.ascontiguousarray(
             observation["robot0_eye_in_hand_image"][::-1, ::-1]
@@ -203,6 +252,7 @@ class LiberoOpenPIBridge:
         return {
             "observation/state": self._state(observation).tolist(),
             "base_action": base_action.tolist(),
+            "task_context": self._task_context().tolist(),
         }
 
     def reset(self, payload: dict) -> dict:
@@ -214,6 +264,15 @@ class LiberoOpenPIBridge:
         options = payload.get("options") or {}
         if not isinstance(options, dict):
             raise TypeError("reset options must be a mapping")
+        if "task_id" in options:
+            task_id = int(options["task_id"])
+        elif seed is None:
+            task_id = int(self.rng.choice(self.task_ids))
+        else:
+            task_id = self.task_ids[int(seed) % len(self.task_ids)]
+        self._select_task(task_id)
+        if self.initial_states is None or self.env is None or self.task is None:
+            raise RuntimeError("LIBERO task initialization failed")
         if "initial_state_id" in options:
             initial_state_id = int(options["initial_state_id"])
         elif seed is None:
@@ -242,14 +301,16 @@ class LiberoOpenPIBridge:
         self.replay_images = []
         self.observation_digest = hashlib.sha256()
         self.action_digest = hashlib.sha256()
+        self.executed_action_digest = hashlib.sha256()
         self.first_action = None
+        self.first_executed_action = None
         self.action_dtype = None
         return {
             "observation": self._payload(observation),
             "info": {
                 "success": False,
                 "task_suite": self.args.task_suite_name,
-                "task_id": self.args.task_id,
+                "task_id": self.task_id,
                 "task_description": str(self.task.language),
                 "initial_state_id": initial_state_id,
                 "stabilization_steps": self.args.num_steps_wait,
@@ -266,6 +327,9 @@ class LiberoOpenPIBridge:
             )
         if not np.all(np.isfinite(action)):
             raise ValueError("action must contain only finite values")
+        update_array_digest(self.executed_action_digest, "executed_action", action)
+        if self.first_executed_action is None:
+            self.first_executed_action = action.tolist()
 
         observation, reward, done, _ = self.env.step(action.tolist())
         self.observation = observation
@@ -285,6 +349,8 @@ class LiberoOpenPIBridge:
             "truncated": truncated,
             "info": {
                 "success": terminated,
+                "task_id": self.task_id,
+                "task_description": str(self.task.language),
                 "initial_state_id": self.initial_state_id,
                 "control_steps": self.control_steps,
                 "total_steps": self.control_steps + self.args.num_steps_wait,
@@ -301,15 +367,19 @@ class LiberoOpenPIBridge:
     def _finalize(self, *, success: bool, reason: str) -> None:
         if not self.active:
             return
+        if self.task_id is None or self.task is None:
+            raise RuntimeError("cannot finalize without a selected LIBERO task")
         suffix = "success" if success else "failure"
         video_name = (
-            f"task_{self.args.task_id}_episode_{self.episode_index}_{suffix}.mp4"
+            f"task_{self.task_id}_episode_{self.episode_index}_{suffix}.mp4"
         )
         video_path = self.args.output_dir / video_name
         if self.replay_images:
             imageio.mimwrite(video_path, self.replay_images, fps=10)
         result = {
             "episode": self.episode_index,
+            "task_id": self.task_id,
+            "task_description": str(self.task.language),
             "initial_state_id": self.initial_state_id,
             "success": bool(success),
             "reason": reason,
@@ -319,8 +389,10 @@ class LiberoOpenPIBridge:
             "return": self.episode_return,
             "observation_trace_sha256": self.observation_digest.hexdigest(),
             "action_trace_sha256": self.action_digest.hexdigest(),
+            "executed_action_trace_sha256": self.executed_action_digest.hexdigest(),
             "action_dtype": self.action_dtype,
             "first_action": self.first_action,
+            "first_executed_action": self.first_executed_action,
             "video": str(video_path) if self.replay_images else None,
         }
         self.episode_results.append(result)
@@ -331,13 +403,28 @@ class LiberoOpenPIBridge:
 
     def _write_results(self) -> None:
         successes = sum(int(result["success"]) for result in self.episode_results)
+        task_results = {}
+        for task_id in self.task_ids:
+            episodes = [
+                episode
+                for episode in self.episode_results
+                if int(episode["task_id"]) == task_id
+            ]
+            task_successes = sum(int(episode["success"]) for episode in episodes)
+            task = self.task_suite.get_task(task_id)
+            task_results[str(task_id)] = {
+                "task_description": str(task.language),
+                "trials": len(episodes),
+                "successes": task_successes,
+                "success_rate": task_successes / len(episodes) if episodes else None,
+            }
         result = {
             "policy": "frozen pi05_libero",
             "batch_size": 1,
-            "representation": "LIBERO environment state",
+            "representation": "LIBERO environment state and task one-hot",
             "task_suite": self.args.task_suite_name,
-            "task_id": self.args.task_id,
-            "task_description": str(self.task.language),
+            "task_ids": list(self.task_ids),
+            "tasks": task_results,
             "episodes": self.episode_results,
             "trials": len(self.episode_results),
             "successes": successes,
@@ -349,21 +436,25 @@ class LiberoOpenPIBridge:
             handle.write("\n")
 
     def status(self) -> dict:
-        return {
+        status = {
             "ready": not self.closed,
             "active": self.active,
             "task_suite": self.args.task_suite_name,
-            "task_id": self.args.task_id,
-            "task_description": str(self.task.language),
+            "task_ids": list(self.task_ids),
+            "task_id": self.task_id,
             "completed_episodes": len(self.episode_results),
         }
+        if self.task is not None:
+            status["task_description"] = str(self.task.language)
+        return status
 
     def close(self) -> dict:
         if self.closed:
             return {"closed": True}
         if self.active:
             self._finalize(success=False, reason="client_closed")
-        self.env.close()
+        if self.env is not None:
+            self.env.close()
         self.closed = True
         return {"closed": True}
 
@@ -427,11 +518,11 @@ def main() -> None:
         BridgeRequestHandler,
     )
     logging.info(
-        "LIBERO bridge listening on %s:%d for %s task %d",
+        "LIBERO bridge listening on %s:%d for %s tasks %s",
         args.listen_host,
         args.listen_port,
         args.task_suite_name,
-        args.task_id,
+        list(bridge.task_ids),
     )
     try:
         server.serve_forever()

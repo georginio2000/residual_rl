@@ -53,13 +53,30 @@ class ProportionalBasePolicy(BasePolicy):
 class ObservationActionBasePolicy(BasePolicy):
     """Read a frozen base action supplied by an environment observation."""
 
-    def __init__(self, action_dim: int, key: str = "base_action") -> None:
+    def __init__(
+        self,
+        action_dim: int,
+        key: str = "base_action",
+        offset: list[float] | tuple[float, ...] | np.ndarray | None = None,
+    ) -> None:
         if action_dim <= 0:
             raise ValueError("action_dim must be positive")
         if not key:
             raise ValueError("base-action observation key cannot be empty")
         self._action_dim = int(action_dim)
         self.key = key
+        if offset is None:
+            self.offset = np.zeros(self.action_dim, dtype=np.float64)
+        else:
+            self.offset = np.asarray(offset, dtype=np.float64)
+        if self.offset.shape != (self.action_dim,):
+            raise ValueError(
+                f"base-action offset must have shape ({self.action_dim},), "
+                f"got {self.offset.shape}"
+            )
+        if not np.all(np.isfinite(self.offset)):
+            raise ValueError("base-action offset must contain only finite values")
+        self.offset = self.offset.copy()
 
     @property
     def action_dim(self) -> int:
@@ -77,4 +94,4 @@ class ObservationActionBasePolicy(BasePolicy):
             )
         if not np.all(np.isfinite(action)):
             raise ValueError("base action must contain only finite values")
-        return action.copy()
+        return action + self.offset.astype(action.dtype, copy=False)

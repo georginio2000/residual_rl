@@ -26,6 +26,7 @@ from last_millimeter.policies import (
     ProportionalBasePolicy,
 )
 from last_millimeter.representations import (
+    ConcatenatedObservationEncoder,
     IdentityStateEncoder,
     ObservationKeyEncoder,
     RepresentationEncoder,
@@ -88,6 +89,7 @@ class BackendRegistry:
         registry.register_base_policy("openpi_websocket", _make_openpi_websocket_policy)
         registry.register_representation("identity", _make_identity_encoder)
         registry.register_representation("observation_key", _make_observation_key_encoder)
+        registry.register_representation("observation_keys", _make_observation_keys_encoder)
         return registry
 
 
@@ -127,6 +129,10 @@ def _make_remote_libero(config: EnvironmentConfig) -> Environment:
     action_high = float(options.pop("action_high", 1.0))
     action_dtype = str(options.pop("action_dtype", "float64"))
     action_bias = options.pop("action_bias", None)
+    task_context_dim = int(options.pop("task_context_dim", 0))
+    task_ids = options.pop("task_ids", None)
+    initial_state_ids = options.pop("initial_state_ids", None)
+    sampling = str(options.pop("sampling", "round_robin"))
     timeout = float(options.pop("timeout", 120.0))
     if options:
         raise ValueError(f"unknown remote_libero options: {sorted(options)}")
@@ -138,6 +144,10 @@ def _make_remote_libero(config: EnvironmentConfig) -> Environment:
         action_high=action_high,
         action_dtype=action_dtype,
         action_bias=action_bias,
+        task_context_dim=task_context_dim,
+        task_ids=task_ids,
+        initial_state_ids=initial_state_ids,
+        sampling=sampling,
         timeout=timeout,
     )
 
@@ -155,9 +165,10 @@ def _make_observation_action_policy(
 ) -> BasePolicy:
     options = dict(config.options)
     key = str(options.pop("key", "base_action"))
+    offset = options.pop("offset", None)
     if options:
         raise ValueError(f"unknown observation_action options: {sorted(options)}")
-    return ObservationActionBasePolicy(context.action_dim, key)
+    return ObservationActionBasePolicy(context.action_dim, key, offset)
 
 
 def _make_openpi_websocket_policy(
@@ -203,6 +214,22 @@ def _make_observation_key_encoder(
     if options:
         raise ValueError(f"unknown observation_key options: {sorted(options)}")
     return ObservationKeyEncoder(key, output_dim)
+
+
+def _make_observation_keys_encoder(
+    config: RepresentationConfig, context: BackendContext
+) -> RepresentationEncoder:
+    del context
+    options = dict(config.options)
+    try:
+        feature_dims = options.pop("feature_dims")
+    except KeyError as exc:
+        raise ValueError("observation_keys requires 'feature_dims'") from exc
+    if not isinstance(feature_dims, dict):
+        raise TypeError("observation_keys feature_dims must be a mapping")
+    if options:
+        raise ValueError(f"unknown observation_keys options: {sorted(options)}")
+    return ConcatenatedObservationEncoder(feature_dims)
 
 
 def _backend_context(env: Environment) -> BackendContext:

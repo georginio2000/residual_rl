@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import json
 from typing import Any, Protocol
 from urllib import error, request
@@ -67,6 +67,10 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         action_high: float = 1.0,
         action_dtype: str = "float64",
         action_bias: list[float] | tuple[float, ...] | np.ndarray | None = None,
+        task_context_dim: int = 0,
+        task_ids: Sequence[int] | None = None,
+        initial_state_ids: Sequence[int] | None = None,
+        sampling: str = "round_robin",
         timeout: float = 120.0,
         transport: JsonTransport | None = None,
     ) -> None:
@@ -77,6 +81,10 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("action_dim must be positive")
         if action_low >= action_high:
             raise ValueError("action_low must be less than action_high")
+        if task_context_dim < 0:
+            raise ValueError("task_context_dim cannot be negative")
+        if sampling not in {"round_robin", "uniform"}:
+            raise ValueError("remote LIBERO sampling must be 'round_robin' or 'uniform'")
         self.observation_dim = int(observation_dim)
         self.action_dim = int(action_dim)
         self.action_low = float(action_low)
@@ -96,8 +104,13 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         if not np.all(np.isfinite(self.action_bias)):
             raise ValueError("remote LIBERO action_bias must contain only finite values")
         self.action_bias = self.action_bias.copy()
+        self.task_context_dim = int(task_context_dim)
+        self.task_ids = self._validate_ids("task_ids", task_ids)
+        self.initial_state_ids = self._validate_ids("initial_state_ids", initial_state_ids)
+        self.sampling = sampling
         self.transport = transport or UrllibJsonTransport(endpoint, timeout)
         self._session_active = False
+        self._reset_count = 0
 
         self.action_space = spaces.Box(
             self.action_low,
@@ -105,22 +118,41 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             shape=(self.action_dim,),
             dtype=self.action_dtype,
         )
-        self.observation_space = spaces.Dict(
-            {
-                "observation/state": spaces.Box(
-                    -np.inf,
-                    np.inf,
-                    shape=(self.observation_dim,),
-                    dtype=np.float32,
-                ),
-                "base_action": spaces.Box(
-                    self.action_low,
-                    self.action_high,
-                    shape=(self.action_dim,),
-                    dtype=self.action_dtype,
-                ),
-            }
-        )
+        observation_spaces: dict[str, spaces.Space[Any]] = {
+            "observation/state": spaces.Box(
+                -np.inf,
+                np.inf,
+                shape=(self.observation_dim,),
+                dtype=np.float32,
+            ),
+            "base_action": spaces.Box(
+                self.action_low,
+                self.action_high,
+                shape=(self.action_dim,),
+                dtype=self.action_dtype,
+            ),
+        }
+        if self.task_context_dim:
+            observation_spaces["task_context"] = spaces.Box(
+                0.0,
+                1.0,
+                shape=(self.task_context_dim,),
+                dtype=np.float32,
+            )
+        self.observation_space = spaces.Dict(observation_spaces)
+
+    @staticmethod
+    def _validate_ids(name: str, values: Sequence[int] | None) -> tuple[int, ...]:
+        if values is None:
+            return ()
+        ids = tuple(int(value) for value in values)
+        if not ids:
+            raise ValueError(f"remote LIBERO {name} cannot be empty")
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"remote LIBERO {name} must be unique")
+        if any(value < 0 for value in ids):
+            raise ValueError(f"remote LIBERO {name} cannot contain negative values")
+        return ids
 
     def _observation(self, value: Any) -> dict[str, np.ndarray]:
         if not isinstance(value, Mapping):
@@ -139,10 +171,21 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             )
         if not np.all(np.isfinite(state)) or not np.all(np.isfinite(base_action)):
             raise ValueError("remote LIBERO observation must contain only finite values")
-        return {
+        result = {
             "observation/state": state.copy(),
             "base_action": base_action.copy(),
         }
+        if self.task_context_dim:
+            task_context = np.asarray(value.get("task_context"), dtype=np.float32)
+            if task_context.shape != (self.task_context_dim,):
+                raise ValueError(
+                    "remote LIBERO task_context must have shape "
+                    f"({self.task_context_dim},), got {task_context.shape}"
+                )
+            if not np.all(np.isfinite(task_context)):
+                raise ValueError("remote LIBERO task_context must contain only finite values")
+            result["task_context"] = task_context.copy()
+        return result
 
     @staticmethod
     def _info(value: Any) -> dict[str, Any]:
@@ -157,13 +200,30 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         super().reset(seed=seed)
+        reset_options = dict(options or {})
+        schedule_index = self._reset_count
+        if self.task_ids and "task_id" not in reset_options:
+            if self.sampling == "round_robin":
+                task_id = self.task_ids[schedule_index % len(self.task_ids)]
+            else:
+                task_id = int(self.np_random.choice(self.task_ids))
+            reset_options["task_id"] = task_id
+        if self.initial_state_ids and "initial_state_id" not in reset_options:
+            if self.sampling == "round_robin":
+                task_period = len(self.task_ids) or 1
+                state_index = (schedule_index // task_period) % len(self.initial_state_ids)
+                initial_state_id = self.initial_state_ids[state_index]
+            else:
+                initial_state_id = int(self.np_random.choice(self.initial_state_ids))
+            reset_options["initial_state_id"] = initial_state_id
         response = self.transport.request(
             "/reset",
-            {"seed": seed, "options": options or {}},
+            {"seed": seed, "options": reset_options},
         )
         observation = self._observation(response.get("observation"))
         info = self._info(response.get("info", {}))
         self._session_active = True
+        self._reset_count += 1
         return observation, info
 
     def step(

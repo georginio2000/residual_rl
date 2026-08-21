@@ -8,8 +8,11 @@ import pytest
 from last_millimeter.config import load_config
 from last_millimeter.envs import RemoteLiberoEnv
 from last_millimeter.factory import make_components, make_environment
-from last_millimeter.policies import ObservationActionBasePolicy
-from last_millimeter.representations import ObservationKeyEncoder
+from last_millimeter.policies import ActionComposer, ControlMode, ObservationActionBasePolicy
+from last_millimeter.representations import (
+    ConcatenatedObservationEncoder,
+    ObservationKeyEncoder,
+)
 
 
 class MockTransport:
@@ -31,6 +34,45 @@ class MockTransport:
                 "terminated": True,
                 "truncated": False,
                 "info": {"success": True, "initial_state_id": 3},
+            }
+        if route == "/close":
+            return {"closed": True}
+        raise AssertionError(f"unexpected route {route}")
+
+
+class MultiTaskMockTransport(MockTransport):
+    def __init__(self, task_context_dim: int) -> None:
+        super().__init__()
+        self.task_context_dim = task_context_dim
+        self.task_id = 0
+
+    def request(self, route: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        self.calls.append((route, dict(payload)))
+        if route == "/reset":
+            self.task_id = int(payload["options"]["task_id"])
+        task_context = [0.0] * self.task_context_dim
+        task_context[self.task_id] = 1.0
+        observation = {
+            "observation/state": list(range(8)),
+            "base_action": [0.1] * 7,
+            "task_context": task_context,
+        }
+        if route == "/reset":
+            return {
+                "observation": observation,
+                "info": {
+                    "success": False,
+                    "task_id": self.task_id,
+                    "initial_state_id": payload["options"].get("initial_state_id"),
+                },
+            }
+        if route == "/step":
+            return {
+                "observation": observation,
+                "reward": 0.0,
+                "terminated": False,
+                "truncated": False,
+                "info": {"success": False, "task_id": self.task_id},
             }
         if route == "/close":
             return {"closed": True}
@@ -101,12 +143,65 @@ def test_remote_libero_config_forwards_action_bias() -> None:
     )
 
 
+def test_remote_libero_round_robin_covers_task_state_product() -> None:
+    transport = MultiTaskMockTransport(task_context_dim=10)
+    env = RemoteLiberoEnv(
+        endpoint="unused",
+        task_context_dim=10,
+        task_ids=[2, 5],
+        initial_state_ids=[7, 8],
+        sampling="round_robin",
+        transport=transport,
+    )
+
+    resets = [env.reset(seed=100 + index) for index in range(4)]
+
+    scheduled = [call[1]["options"] for call in transport.calls if call[0] == "/reset"]
+    assert scheduled == [
+        {"task_id": 2, "initial_state_id": 7},
+        {"task_id": 5, "initial_state_id": 7},
+        {"task_id": 2, "initial_state_id": 8},
+        {"task_id": 5, "initial_state_id": 8},
+    ]
+    assert [info["task_id"] for _, info in resets] == [2, 5, 2, 5]
+    np.testing.assert_array_equal(resets[1][0]["task_context"], np.eye(10)[5])
+
+
+def test_oracle_offset_cancels_remote_action_bias() -> None:
+    transport = MockTransport()
+    env = RemoteLiberoEnv(
+        endpoint="unused",
+        action_bias=[0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        transport=transport,
+    )
+    policy = ObservationActionBasePolicy(
+        action_dim=7,
+        offset=[-0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+    composer = ActionComposer(
+        ControlMode.FROZEN,
+        action_dim=7,
+        residual_scale=0.35,
+        action_low=-2.0,
+        action_high=2.0,
+    )
+    observation, _ = env.reset(seed=0)
+
+    corrected_action = composer.compose(policy.act(observation), None).executed_action
+    env.step(corrected_action)
+
+    np.testing.assert_allclose(transport.calls[1][1]["action"], [0.1] * 7)
+
+
 @pytest.mark.parametrize(
     "config_name",
     [
         "frozen_state.yaml",
         "spatial_task4_frozen_state.yaml",
         "libero10_task8_frozen_state.yaml",
+        "spatial_suite_frozen_state.yaml",
+        "spatial_suite_bias_x_0p150_frozen_state.yaml",
+        "spatial_suite_bias_x_0p150_oracle_state.yaml",
     ],
 )
 def test_frozen_libero_config_builds_without_connecting(config_name: str) -> None:
@@ -116,6 +211,10 @@ def test_frozen_libero_config_builds_without_connecting(config_name: str) -> Non
     components = make_components(config)
 
     assert isinstance(components.base_policy, ObservationActionBasePolicy)
-    assert isinstance(components.encoder, ObservationKeyEncoder)
+    if config_name.startswith("spatial_suite"):
+        assert isinstance(components.encoder, ConcatenatedObservationEncoder)
+        assert components.encoder.output_dim == 18
+    else:
+        assert isinstance(components.encoder, ObservationKeyEncoder)
     assert components.composer.action_dim == 7
     assert components.agent is None

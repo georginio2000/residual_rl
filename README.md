@@ -20,8 +20,8 @@ installed in the main project environment and no VLA parameters are fine-tuned.
 - The 30,000-step toy residual config was verified on CUDA.
 - Official OpenPI was cloned recursively and pinned exactly.
 - Frozen `pi05_libero` evaluation was reproduced at inference batch size 1.
-- The main project evaluated three LIBERO initial states through an isolated
-  state/base-action bridge; all three succeeded.
+- The main project now selects all ten Spatial tasks through an isolated
+  state/base-action bridge with deterministic task/state evaluation schedules.
 - Reusable batch-size-1 screening covered every LIBERO Spatial and LIBERO-10
   task, with explicit initial-state range selection.
 - A constant `+0.15` normalized Cartesian x-action calibration bias was selected
@@ -29,6 +29,8 @@ installed in the main project environment and no VLA parameters are fine-tuned.
   fixed initial states per task, success changed from 29/30 to 18/30.
 - The primary adaptation target is the full ten-task Spatial suite, not a
   task-specific policy. No residual LIBERO training has started.
+- A paired bridge control on Spatial state 0 scored 10/10 without bias, 6/10
+  with the selected bias, and 10/10 with the fixed inverse oracle correction.
 - Environment, base-policy, and representation construction now use named,
   extensible backends with mocked CPU-only boundary tests.
 - Residual LIBERO training and VLA-latent extraction have not been started.
@@ -91,7 +93,7 @@ Built-in names are:
 |---|---|---|
 | Environment | `precision_reach`, `remote_libero` | Local toy task or isolated simulator proxy |
 | Base policy | `proportional`, `observation_action`, `openpi_websocket` | Toy, observation-supplied, or direct remote action |
-| Representation | `identity`, `observation_key` | Flat toy state or a selected mapping feature |
+| Representation | `identity`, `observation_key`, `observation_keys` | Flat state, one mapping feature, or ordered concatenated features |
 
 `BackendRegistry` accepts additional builders without importing simulator or
 VLA dependencies into the core package. `OpenPIClientBasePolicy` depends only
@@ -276,7 +278,7 @@ The structured result and replay video are written to
 12 GB GPU; it does not establish enough headroom for co-locating additional
 large GPU models.
 
-## Frozen task screening and candidate selection
+## Frozen task screening
 
 The reusable screening runner evaluates selected tasks sequentially against an
 already-running frozen server. It writes `screen_result.json` after every task,
@@ -314,7 +316,7 @@ rollouts and 5/5 through the bridge, making it too close to solved.
 
 `eval_libero_task.py` and `screen_libero_tasks.py` accept
 `--initial-state-offset`, so follow-up runs can cover new states instead of
-repeating state 0. The selected candidate was confirmed with:
+repeating state 0. An earlier single-task candidate was confirmed with:
 
 ```bash
 mkdir -p /root/workspace/residual_rl/runs/libero_10_task8_5trials
@@ -341,7 +343,8 @@ docker run --rm --gpus all \
      --output-dir /data'
 ```
 
-The direct frozen baseline succeeded on states 0, 3, and 4 and timed out on
+This earlier single-task exploration found that the direct frozen baseline
+succeeded on states 0, 3, and 4 and timed out on
 states 1 and 2: 3/5 success. Successful episodes used 432–445 total simulator
 steps; both failures exhausted the 530-step limit. Video inspection showed
 that both failures placed the first moka pot, then stalled while reaching for
@@ -423,9 +426,9 @@ Python 3.10 residual_rl  <-- HTTP/JSON: state + base action -->  Python 3.8 LIBE
 ```
 
 Images remain inside the LIBERO client. The main environment receives the
-8-D simulator state and the next 7-D frozen action, composes the executed
-action, and returns it to the bridge. This is a state-based path only; no VLA
-latent is exposed.
+8-D simulator state, a suite-sized task one-hot, and the next 7-D frozen action,
+composes the executed action, and returns it to the bridge. This is a
+state-based path only; no VLA latent is exposed.
 
 Two details are required for behavioral parity with the official evaluator:
 
@@ -504,8 +507,8 @@ cd /root/workspace/openpi
 docker compose -f examples/libero/compose.yml stop openpi_server
 ```
 
-The selected LIBERO-10 task 8 uses the same boundary. Launch the bridge with
-`--task-suite-name libero_10 --task-id 8`, then run:
+The earlier exploratory LIBERO-10 task 8 run uses the same boundary. Launch the
+bridge with `--task-suite-name libero_10 --task-id 8`, then run:
 
 ```bash
 .venv/bin/python -m last_millimeter.train \
@@ -519,6 +522,71 @@ accelerator-level action differences, so direct-loop and bridge results are
 reported separately rather than treated as bitwise-equivalent runs. Sampled
 VRAM during this longer bridge evaluation was 9,365 MiB / 12,288 MiB.
 
+### Multi-task Spatial bridge and oracle control
+
+For joint Spatial experiments, launch one bridge that allows all ten tasks:
+
+```bash
+mkdir -p /root/workspace/residual_rl/runs/libero_bridge_spatial_suite
+
+docker run --rm -d \
+  --name residual-libero-bridge \
+  --gpus all \
+  -p 127.0.0.1:8765:8765 \
+  --add-host=host.docker.internal:host-gateway \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e PYOPENGL_PLATFORM=egl \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  -v /root/workspace/openpi:/app:ro \
+  -v /root/workspace/residual_rl:/residual_rl:ro \
+  -v /root/workspace/residual_rl/runs/libero_bridge_spatial_suite:/data \
+  libero /bin/bash -lc \
+  'source /.venv/bin/activate && \
+   python /residual_rl/scripts/openpi/libero_bridge_service.py \
+     --policy-host host.docker.internal \
+     --task-suite-name libero_spatial \
+     --task-ids 0,1,2,3,4,5,6,7,8,9 \
+     --seed 7 \
+     --output-dir /data'
+```
+
+The suite configs use `round_robin` scheduling. Ten episodes cover task IDs
+0–9 at initial state 0; 30 episodes cover the Cartesian product of task IDs
+0–9 and initial-state IDs 0–2. `uniform` scheduling is available for later
+training. The residual representation concatenates the 8-D robot state and
+10-D task one-hot; the base action remains a separate actor input.
+
+With a freshly restarted frozen server before each condition, the validated
+state-0 control produced:
+
+| Condition | Config | Success |
+|---|---|---:|
+| Unbiased frozen π0.5 | `spatial_suite_frozen_state.yaml` | 10/10 |
+| `+0.15` x bias | `spatial_suite_bias_x_0p150_frozen_state.yaml` | 6/10 |
+| Bias plus fixed `-0.15` x oracle | `spatial_suite_bias_x_0p150_oracle_state.yaml` | 10/10 |
+
+Run a condition through the normal project evaluator with:
+
+```bash
+.venv/bin/python -m last_millimeter.evaluate \
+  --config configs/libero/spatial_suite_bias_x_0p150_oracle_state.yaml \
+  --episodes 10
+```
+
+The oracle is an evaluation-only `observation_action.offset`; it is supplied by
+configuration and is never learned. At the bridge, its first executed action
+matched the raw frozen action exactly in float64 for every checked episode,
+confirming that `-0.15 + 0.15` cancels in the intended action space. The main
+evaluator reports its correction norm as zero because the known offset is
+implemented as a fixed base-action transform, not an RL policy output.
+
+The bridge writes task IDs, descriptions, state IDs, per-task success, raw and
+executed action hashes, and videos to `bridge_result.json`. Post-run GPU memory
+was 9,084 MiB / 12,288 MiB; the previously sampled bridge peak remains
+9,622 MiB. This leaves the frozen batch-size-1 workflow within the 12 GB limit.
+
 ## Experiment modes and next gate
 
 - `frozen`: evaluate the frozen base policy.
@@ -531,9 +599,10 @@ intensity. The actor receives the configured representation and reference base
 action. Critics evaluate the policy output in that same context, while the
 environment receives the composed action.
 
-The next gate is an oracle cancellation control followed by a multi-task bridge
-that can sample all ten Spatial tasks and expose task identity alongside the
-8-D end-effector/gripper state. The unbiased, biased, and oracle-corrected
-conditions must be reproducible through that boundary before state-based
-always-on residual training begins. VLA-latent extraction and learned gating
-remain separate follow-up steps, with the VLA frozen throughout.
+The oracle and multi-task bridge gates are complete. Before state-based
+always-on residual training begins, the next step is to define disjoint
+training and held-out initial-state sets, configure uniform task sampling for
+training and round-robin sampling for evaluation, and rerun the 30-pair bridge
+baseline if a full bridge-level confirmation is required. VLA-latent
+extraction and learned gating remain separate follow-up steps, with the VLA
+frozen throughout.
