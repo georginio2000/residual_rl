@@ -126,6 +126,7 @@ def _make_remote_libero(config: EnvironmentConfig) -> Environment:
     action_low = float(options.pop("action_low", -1.0))
     action_high = float(options.pop("action_high", 1.0))
     action_dtype = str(options.pop("action_dtype", "float64"))
+    action_bias = options.pop("action_bias", None)
     timeout = float(options.pop("timeout", 120.0))
     if options:
         raise ValueError(f"unknown remote_libero options: {sorted(options)}")
@@ -136,6 +137,7 @@ def _make_remote_libero(config: EnvironmentConfig) -> Environment:
         action_low=action_low,
         action_high=action_high,
         action_dtype=action_dtype,
+        action_bias=action_bias,
         timeout=timeout,
     )
 

@@ -8,9 +8,10 @@ executed_action = base_action + gate * correction
 ```
 
 The toy residual-RL experiment, frozen OpenPI π0.5-LIBERO baselines, and an
-isolated state-based LIBERO bridge are validated. OpenPI is served as a frozen
-remote policy; it is not installed in the main project environment and no VLA
-parameters are fine-tuned.
+isolated state-based LIBERO bridge are validated. A controlled action-calibration
+shift reduces frozen π0.5's LIBERO-Spatial success from 96.7% to 60.0% on the
+same task/state pairs. OpenPI is served as a frozen remote policy; it is not
+installed in the main project environment and no VLA parameters are fine-tuned.
 
 ## Current milestone status
 
@@ -23,9 +24,11 @@ parameters are fine-tuned.
   state/base-action bridge; all three succeeded.
 - Reusable batch-size-1 screening covered every LIBERO Spatial and LIBERO-10
   task, with explicit initial-state range selection.
-- LIBERO-10 task 8, “put both moka pots on the stove,” is the selected residual
-  candidate: the frozen policy scored 3/5 in the direct loop and 1/5 through
-  the main-project bridge on fixed initial states 0–4.
+- A constant `+0.15` normalized Cartesian x-action calibration bias was selected
+  as the controlled deployment shift. Across all ten Spatial tasks and three
+  fixed initial states per task, success changed from 29/30 to 18/30.
+- The primary adaptation target is the full ten-task Spatial suite, not a
+  task-specific policy. No residual LIBERO training has started.
 - Environment, base-policy, and representation construction now use named,
   extensible backends with mocked CPU-only boundary tests.
 - Residual LIBERO training and VLA-latent extraction have not been started.
@@ -345,6 +348,70 @@ that both failures placed the first moka pot, then stalled while reaching for
 or grasping the second. This is a concrete late-stage correction opportunity,
 not a task where the frozen policy makes no useful progress.
 
+## Controlled LIBERO-Spatial deployment shift
+
+Before starting RL, one action-calibration parameter was swept while OpenPI
+remained frozen. At each policy-controlled simulator step, a constant offset is
+added only to the normalized Cartesian x action after π0.5 inference:
+
+```text
+executed_action = pi05_action + [bias_x, 0, 0, 0, 0, 0, 0]
+```
+
+The stabilization actions, observations, prompt, gripper channel, policy
+weights, and inference batch size are unchanged. Actions are not clipped. The
+runner stores separate SHA-256 traces for raw policy actions and executed
+actions so this boundary is auditable.
+
+The coarse sweep used one fixed initial state from every Spatial task:
+
+| x-action bias | Successes | Success rate |
+|---:|---:|---:|
+| `0.00` | 9/10 | 90% |
+| `+0.02` | 10/10 | 100% |
+| `+0.05` | 10/10 | 100% |
+| `+0.10` | 7/10 | 70% |
+| `+0.15` | 7/10 | 70% |
+
+The small non-monotonic differences are compatible with closed-loop policy
+compensation and stochastic inference. The two useful candidates were then
+evaluated on the same 30 task/state pairs (ten tasks, initial states 0–2):
+
+| x-action bias | Successes | Success rate |
+|---:|---:|---:|
+| `0.00` | 29/30 | 96.7% |
+| `+0.10` | 24/30 | 80.0% |
+| `+0.15` | 18/30 | 60.0% |
+
+This establishes a controlled mid-success deployment regime for the project.
+It shows that the frozen generalist is vulnerable to a modest controller shift;
+it does not yet show that RL can recover the lost performance.
+
+Reproduce a stratum by restarting the frozen server to reset its policy RNG,
+then adding `--action-bias-x` to the screening command above. For example:
+
+```bash
+python /residual_rl/scripts/openpi/screen_libero_tasks.py \
+  --host host.docker.internal \
+  --task-suite-name libero_spatial \
+  --task-ids 0,1,2,3,4,5,6,7,8,9 \
+  --num-trials 3 \
+  --initial-state-offset 0 \
+  --action-bias-x 0.15 \
+  --seed 7 \
+  --output-dir /data
+```
+
+The `remote_libero` backend accepts the equivalent full-vector YAML option,
+which applies the same deployment shift after main-project action composition:
+
+```yaml
+environment:
+  backend: remote_libero
+  options:
+    action_bias: [0.15, 0, 0, 0, 0, 0, 0]
+```
+
 ## State-based isolated LIBERO bridge
 
 The next integration boundary is now implemented as:
@@ -464,13 +531,9 @@ intensity. The actor receives the configured representation and reference base
 action. Critics evaluate the policy output in that same context, while the
 environment receives the composed action.
 
-LIBERO-10 task 8 is now the selected imperfect baseline, but residual training
-is still gated. The current 8-D representation contains only end-effector pose
-and gripper state; it cannot identify either moka pot, the stove target, or
-whether the first subgoal is complete. The next milestone is to expose a
-compact simulator task-state vector through the existing bridge, define and
-test phase-aware dense reward diagnostics for the two placements, and rerun the
-frozen baseline without changing OpenPI. State-based always-on residual
-training can begin only after that boundary is reproducible. VLA-latent
-extraction and learned gating remain separate follow-up steps, with the VLA
-frozen throughout.
+The next gate is an oracle cancellation control followed by a multi-task bridge
+that can sample all ten Spatial tasks and expose task identity alongside the
+8-D end-effector/gripper state. The unbiased, biased, and oracle-corrected
+conditions must be reproducible through that boundary before state-based
+always-on residual training begins. VLA-latent extraction and learned gating
+remain separate follow-up steps, with the VLA frozen throughout.

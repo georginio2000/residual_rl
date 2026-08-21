@@ -26,6 +26,7 @@ from openpi_client import websocket_client_policy
 
 LIBERO_DUMMY_ACTION = [0.0] * 6 + [-1.0]
 LIBERO_ENV_RESOLUTION = 256
+LIBERO_ACTION_DIM = 7
 MAX_STEPS = {
     "libero_spatial": 220,
     "libero_object": 280,
@@ -61,6 +62,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resize-size", type=int, default=224)
     parser.add_argument("--replan-steps", type=int, default=5)
     parser.add_argument("--num-steps-wait", type=int, default=10)
+    parser.add_argument(
+        "--action-bias-x",
+        type=float,
+        default=0.0,
+        help="constant bias added to Cartesian x actions after frozen inference",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output-dir", type=Path, default=Path("/data/libero_smoke"))
     return parser.parse_args()
@@ -95,6 +102,10 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("replan_steps must be positive")
     if args.initial_state_offset < 0:
         raise ValueError("initial_state_offset cannot be negative")
+    if not math.isfinite(args.action_bias_x):
+        raise ValueError("action_bias_x must be finite")
+    action_bias = np.zeros(LIBERO_ACTION_DIM, dtype=np.float64)
+    action_bias[0] = args.action_bias_x
 
     np.random.seed(args.seed)
     task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
@@ -124,7 +135,9 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
             inference_requests = 0
             observation_digest = hashlib.sha256()
             action_digest = hashlib.sha256()
+            executed_action_digest = hashlib.sha256()
             first_action = None
+            first_executed_action = None
             action_dtype = None
             done = False
             step = 0
@@ -178,7 +191,15 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
                     action_plan.extend(action_chunk[: args.replan_steps])
 
                 action = action_plan.popleft()
-                observation, _, done, _ = env.step(action.tolist())
+                executed_action = np.asarray(action, dtype=np.float64) + action_bias
+                update_array_digest(
+                    executed_action_digest,
+                    "executed_action",
+                    executed_action,
+                )
+                if first_executed_action is None:
+                    first_executed_action = executed_action.tolist()
+                observation, _, done, _ = env.step(executed_action.tolist())
                 step += 1
                 if done:
                     successes += 1
@@ -199,8 +220,10 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
                     "inference_requests": inference_requests,
                     "observation_trace_sha256": observation_digest.hexdigest(),
                     "action_trace_sha256": action_digest.hexdigest(),
+                    "executed_action_trace_sha256": executed_action_digest.hexdigest(),
                     "action_dtype": action_dtype,
                     "first_action": first_action,
+                    "first_executed_action": first_executed_action,
                     "video": str(video_path),
                 }
             )
@@ -221,6 +244,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, object]:
         "task_id": args.task_id,
         "task_description": str(task.language),
         "seed": args.seed,
+        "action_bias": action_bias.tolist(),
+        "action_bias_x": args.action_bias_x,
         "initial_state_offset": args.initial_state_offset,
         "trials": args.num_trials,
         "successes": successes,

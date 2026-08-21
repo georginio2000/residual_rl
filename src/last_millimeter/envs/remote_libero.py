@@ -66,6 +66,7 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         action_low: float = -1.0,
         action_high: float = 1.0,
         action_dtype: str = "float64",
+        action_bias: list[float] | tuple[float, ...] | np.ndarray | None = None,
         timeout: float = 120.0,
         transport: JsonTransport | None = None,
     ) -> None:
@@ -83,6 +84,18 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self.action_dtype = np.dtype(action_dtype)
         if not np.issubdtype(self.action_dtype, np.floating):
             raise ValueError("remote LIBERO action_dtype must be floating point")
+        if action_bias is None:
+            self.action_bias = np.zeros(self.action_dim, dtype=self.action_dtype)
+        else:
+            self.action_bias = np.asarray(action_bias, dtype=self.action_dtype)
+        if self.action_bias.shape != (self.action_dim,):
+            raise ValueError(
+                f"remote LIBERO action_bias must have shape ({self.action_dim},), "
+                f"got {self.action_bias.shape}"
+            )
+        if not np.all(np.isfinite(self.action_bias)):
+            raise ValueError("remote LIBERO action_bias must contain only finite values")
+        self.action_bias = self.action_bias.copy()
         self.transport = transport or UrllibJsonTransport(endpoint, timeout)
         self._session_active = False
 
@@ -165,7 +178,13 @@ class RemoteLiberoEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             )
         if not np.all(np.isfinite(action)):
             raise ValueError("remote LIBERO action must contain only finite values")
-        response = self.transport.request("/step", {"action": action.tolist()})
+        executed_action = np.asarray(action, dtype=self.action_dtype) + self.action_bias
+        if not np.all(np.isfinite(executed_action)):
+            raise ValueError("biased remote LIBERO action must contain only finite values")
+        response = self.transport.request(
+            "/step",
+            {"action": executed_action.tolist()},
+        )
         observation = self._observation(response.get("observation"))
         info = self._info(response.get("info", {}))
         return (

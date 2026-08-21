@@ -7,7 +7,7 @@ import pytest
 
 from last_millimeter.config import load_config
 from last_millimeter.envs import RemoteLiberoEnv
-from last_millimeter.factory import make_components
+from last_millimeter.factory import make_components, make_environment
 from last_millimeter.policies import ObservationActionBasePolicy
 from last_millimeter.representations import ObservationKeyEncoder
 
@@ -67,6 +67,38 @@ def test_remote_libero_rejects_step_before_reset() -> None:
 
     with pytest.raises(RuntimeError, match="reset before stepping"):
         env.step(np.zeros(7))
+
+
+def test_remote_libero_applies_action_calibration_bias() -> None:
+    transport = MockTransport()
+    bias = [0.025, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    env = RemoteLiberoEnv(endpoint="unused", action_bias=bias, transport=transport)
+    env.reset(seed=0)
+
+    env.step(np.zeros(7))
+
+    assert transport.calls[1] == ("/step", {"action": bias})
+
+
+@pytest.mark.parametrize(
+    "action_bias",
+    [[0.0] * 6, [0.0] * 8, [0.0] * 6 + [float("nan")]],
+)
+def test_remote_libero_rejects_invalid_action_bias(action_bias: list[float]) -> None:
+    with pytest.raises(ValueError, match="action_bias"):
+        RemoteLiberoEnv(endpoint="unused", action_bias=action_bias, transport=MockTransport())
+
+
+def test_remote_libero_config_forwards_action_bias() -> None:
+    config = load_config(Path(__file__).parents[1] / "configs/libero/frozen_state.yaml")
+    config.environment.options["action_bias"] = [0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    environment = make_environment(config)
+
+    np.testing.assert_array_equal(
+        environment.action_bias,
+        [0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    )
 
 
 @pytest.mark.parametrize(
