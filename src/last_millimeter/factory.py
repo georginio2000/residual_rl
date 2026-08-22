@@ -84,6 +84,7 @@ class BackendRegistry:
         registry = cls()
         registry.register_environment("precision_reach", _make_precision_reach)
         registry.register_environment("remote_libero", _make_remote_libero)
+        registry.register_environment("remote_robomimic", _make_remote_libero)
         registry.register_base_policy("proportional", _make_proportional_policy)
         registry.register_base_policy("observation_action", _make_observation_action_policy)
         registry.register_base_policy("openpi_websocket", _make_openpi_websocket_policy)
@@ -121,6 +122,9 @@ def _make_precision_reach(config: EnvironmentConfig) -> Environment:
 
 
 def _make_remote_libero(config: EnvironmentConfig) -> Environment:
+    # Also registered as "remote_robomimic": RemoteLiberoEnv's HTTP/JSON protocol
+    # (state + base action) is not LIBERO-specific, so the same builder backs
+    # any state-based bridge, including the robomimic BC-RNN Square bridge.
     options = dict(config.options)
     endpoint = str(options.pop("endpoint", "http://127.0.0.1:8765"))
     observation_dim = int(options.pop("observation_dim", 8))
