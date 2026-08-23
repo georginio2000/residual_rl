@@ -901,11 +901,14 @@ raw 30-episode speed-comparison bridge outputs under
 `results/speed_comparison/`. `docs/figures/per_run/` has one standalone
 success-rate-over-training figure (plus loss curves, where applicable) per
 run, in addition to the cross-run comparison figures in `docs/figures/`
-referenced throughout this document. Model checkpoints (`.pt`/`.pth`) and
-raw rollout videos are not committed to the repository (large binaries,
-regenerable from the configs and commands documented here); everything
-needed to verify or replot every number and figure in this document is in
-`results/` and `docs/figures/`.
+referenced throughout this document. Every model checkpoint (`.pt`/`.pth`,
+under each run's own `results/<run_name>/model_checkpoints/`) and every raw
+rollout video (`.mp4`, under each run's own `results/<run_name>/videos/`)
+referenced anywhere in this document is committed too, alongside the
+zero-shot pi05_libero NutAssemblySquare/ToolHang smoke-test videos that
+motivated building the robomimic bridge in the first place
+(`results/robosuite_nutsquare/`, `results/robosuite_toolhang/`). Nothing in
+this document depends on the local, gitignored `runs/` directory.
 
 `configs/robomimic/*.yaml` hold the *current* version of each config file,
 which was edited in place across iterations (e.g. `square_triggered.yaml` now

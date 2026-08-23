@@ -1,0 +1,113 @@
+{
+  "action_bias": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "action_bias_x": 0.0,
+  "batch_size": 1,
+  "env_name": "NutAssemblySquare",
+  "episodes": [
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "040acafff7abcabf2a33d0843a188aa07f2f73fdaa1996fc7e7fa289873a8f72",
+      "episode": 0,
+      "executed_action_trace_sha256": "b7ba4e6706b0ba622f97101397ac8868d0a6b11edac80d4d958994193551da42",
+      "first_action": [
+        0.03518256131297337,
+        -0.07632458907711515,
+        -0.0007320502412320185,
+        -0.00017167608545731738,
+        -0.04143967598234899,
+        0.0016236853298224885,
+        -1.0015148477977514
+      ],
+      "first_executed_action": [
+        0.03518256131297337,
+        -0.07632458907711515,
+        -0.0007320502412320185,
+        -0.00017167608545731738,
+        -0.04143967598234899,
+        0.0016236853298224885,
+        -1.0015148477977514
+      ],
+      "inference_requests": 104,
+      "observation_trace_sha256": "f2109afa5e57de30ed0633ba8f42634725edd17ee01f67376be8de8bf70f852a",
+      "seed": 7,
+      "steps": 530,
+      "success": false,
+      "video": "/data/NutAssemblySquare_episode_0_failure.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "ccf53e8db9d3c97db6971db3851bf09cdb691777d1361bdbfa5f8876e13cda3c",
+      "episode": 1,
+      "executed_action_trace_sha256": "170052238d6c42c0fe03ac086c5e063d3b4f2f051209a9c14c4877c14235b72a",
+      "first_action": [
+        0.007520583619147425,
+        -0.025808021453797902,
+        0.006054819716215132,
+        0.0006986880789690286,
+        -0.02086554947144323,
+        0.0024898572815278686,
+        -0.9997871942767202
+      ],
+      "first_executed_action": [
+        0.007520583619147425,
+        -0.025808021453797902,
+        0.006054819716215132,
+        0.0006986880789690286,
+        -0.02086554947144323,
+        0.0024898572815278686,
+        -0.9997871942767202
+      ],
+      "inference_requests": 104,
+      "observation_trace_sha256": "71d309677c50eba203c877188c47b39f0f25858429e1ef65c3203b537c881cf8",
+      "seed": 8,
+      "steps": 530,
+      "success": false,
+      "video": "/data/NutAssemblySquare_episode_1_failure.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "164e75e5a77d972976aa25ab126b029187caf3a5a08148af26071056fbb12369",
+      "episode": 2,
+      "executed_action_trace_sha256": "ded6f0f1c9608180318b3d257b89f2d476e8d938dedc5d06dc71483b97e42a79",
+      "first_action": [
+        0.07226696024432766,
+        0.022345779109835595,
+        0.000537498926639457,
+        -0.0007713633812988924,
+        -0.012505001643746488,
+        -0.007045997183949104,
+        -0.9986236457617282
+      ],
+      "first_executed_action": [
+        0.07226696024432766,
+        0.022345779109835595,
+        0.000537498926639457,
+        -0.0007713633812988924,
+        -0.012505001643746488,
+        -0.007045997183949104,
+        -0.9986236457617282
+      ],
+      "inference_requests": 104,
+      "observation_trace_sha256": "38efb138d2df94e6eba478c72cc7ede3e8a925a1b3fa88fad61b17f8a17f40ea",
+      "seed": 9,
+      "steps": 530,
+      "success": false,
+      "video": "/data/NutAssemblySquare_episode_2_failure.mp4"
+    }
+  ],
+  "instruction": "pick up the square nut and place it on the square peg",
+  "max_steps": 520,
+  "policy": "frozen (zero-shot, no fine-tune for this task)",
+  "seed": 7,
+  "success_rate": 0.0,
+  "successes": 0,
+  "trials": 3
+}

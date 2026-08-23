@@ -1,0 +1,113 @@
+{
+  "action_bias": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "action_bias_x": 0.0,
+  "batch_size": 1,
+  "env_name": "ToolHang",
+  "episodes": [
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "f881fd82cba426d5583032398983a50ccf1e82dc74f2a427f6b8c46fa7fe5a45",
+      "episode": 0,
+      "executed_action_trace_sha256": "ed18392d607010a89a0225fcb4e1a9a9ecee9427a4fa9d28b17e230d60ce7745",
+      "first_action": [
+        0.15230543104386318,
+        0.2891758272707461,
+        0.003304763025522184,
+        0.004494787329924782,
+        -0.06649444523898301,
+        -0.0007547773337951147,
+        -1.0015482197397947
+      ],
+      "first_executed_action": [
+        0.15230543104386318,
+        0.2891758272707461,
+        0.003304763025522184,
+        0.004494787329924782,
+        -0.06649444523898301,
+        -0.0007547773337951147,
+        -1.0015482197397947
+      ],
+      "inference_requests": 200,
+      "observation_trace_sha256": "53a34307f6858ea3a969948961ac4f490ae401ba55008021b2bf46a827dcae00",
+      "seed": 7,
+      "steps": 1010,
+      "success": false,
+      "video": "/data/ToolHang_episode_0_failure.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "45153acd57391c403cd807db7ab0baa4fdad58ed37df1d3c520fed9dc61e7668",
+      "episode": 1,
+      "executed_action_trace_sha256": "76fff2e077f59bba4f84312487a8c63d786988ef181d93506c1ec6dba9621c1c",
+      "first_action": [
+        -0.004816869381278899,
+        0.14014337969636914,
+        0.01107625428795811,
+        0.0011013613153062068,
+        -0.021570305954199148,
+        0.0009714284263122319,
+        -1.0008857866902352
+      ],
+      "first_executed_action": [
+        -0.004816869381278899,
+        0.14014337969636914,
+        0.01107625428795811,
+        0.0011013613153062068,
+        -0.021570305954199148,
+        0.0009714284263122319,
+        -1.0008857866902352
+      ],
+      "inference_requests": 200,
+      "observation_trace_sha256": "ede1e7b3f94ceb1e8f044d0cd6f452e615fde1e258b21137bee7d92dde21e737",
+      "seed": 8,
+      "steps": 1010,
+      "success": false,
+      "video": "/data/ToolHang_episode_1_failure.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "da41f51f9941409cc7d0c53f93de4f1eb58ca9058194fbb8e15502c40ab4cbd5",
+      "episode": 2,
+      "executed_action_trace_sha256": "a50a88d84618f8d38fb26c854c943e66f0b6804eb9d92dc3679738b78e52f57d",
+      "first_action": [
+        0.12802812521457663,
+        0.19381726055073734,
+        -0.018878882355392035,
+        0.002294532482110298,
+        -0.06723924672144084,
+        0.00025477380313237985,
+        -1.0009822077656387
+      ],
+      "first_executed_action": [
+        0.12802812521457663,
+        0.19381726055073734,
+        -0.018878882355392035,
+        0.002294532482110298,
+        -0.06723924672144084,
+        0.00025477380313237985,
+        -1.0009822077656387
+      ],
+      "inference_requests": 200,
+      "observation_trace_sha256": "0a7fc3636dcbd86db5c1d99e27dca150b633c294632a69396ee5ae7042e684b3",
+      "seed": 9,
+      "steps": 1010,
+      "success": false,
+      "video": "/data/ToolHang_episode_2_failure.mp4"
+    }
+  ],
+  "instruction": "insert the hook into the base and hang the wrench on the hook",
+  "max_steps": 1000,
+  "policy": "frozen (zero-shot, no fine-tune for this task)",
+  "seed": 7,
+  "success_rate": 0.0,
+  "successes": 0,
+  "trials": 3
+}
