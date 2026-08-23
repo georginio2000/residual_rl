@@ -27,6 +27,15 @@ class Intervention:
 class ActionComposer:
     """Compose policy outputs using identical NumPy and differentiable Torch paths."""
 
+    # Gate bias/scale for an untrained (near-zero pre-tanh output) GATED actor.
+    # An untrained actor's affine output collapses toward its bias, so a 0.5
+    # bias means the actor starts by intervening on ~half of every action by
+    # default -- the opposite of the intended "trust the frozen policy unless
+    # learned otherwise" prior. Biasing low instead means training starts from
+    # near-baseline behavior. The scale is set to (1 - bias) so the gate can
+    # still reach a full 1.0 at the actor's output extreme.
+    GATE_INIT_BIAS = 0.1
+
     def __init__(
         self,
         mode: ControlMode,
@@ -59,7 +68,7 @@ class ActionComposer:
             return np.concatenate(
                 (
                     np.full(self.action_dim, self.residual_scale, dtype=np.float32),
-                    np.asarray([0.5], dtype=np.float32),
+                    np.asarray([1.0 - self.GATE_INIT_BIAS], dtype=np.float32),
                 )
             )
         if self.mode is ControlMode.RESIDUAL:
@@ -71,7 +80,10 @@ class ActionComposer:
     def policy_output_bias(self) -> np.ndarray:
         if self.mode is ControlMode.GATED:
             return np.concatenate(
-                (np.zeros(self.action_dim, dtype=np.float32), np.asarray([0.5], dtype=np.float32))
+                (
+                    np.zeros(self.action_dim, dtype=np.float32),
+                    np.asarray([self.GATE_INIT_BIAS], dtype=np.float32),
+                )
             )
         if self.mode is ControlMode.SCRATCH:
             midpoint = (self.action_high + self.action_low) / 2

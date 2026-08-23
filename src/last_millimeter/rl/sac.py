@@ -25,6 +25,14 @@ def resolve_device(device: str) -> torch.device:
 
 
 class SACAgent:
+    # Bounds the automatic entropy-tuning temperature (alpha = exp(log_alpha))
+    # to a numerically sane range. Without this, alpha can grow unboundedly
+    # when the policy's entropy stays below the target entropy (e.g. because
+    # the actor's std collapses toward LOG_STD_MIN), which then dominates the
+    # actor and critic losses and destabilizes training.
+    LOG_ALPHA_MIN = -10.0
+    LOG_ALPHA_MAX = 2.0
+
     def __init__(
         self,
         *,
@@ -160,6 +168,8 @@ class SACAgent:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             alpha_loss.backward()
             self.alpha_optimizer.step()
+            with torch.no_grad():
+                self.log_alpha.clamp_(self.LOG_ALPHA_MIN, self.LOG_ALPHA_MAX)
             alpha_loss_value = float(alpha_loss.detach().cpu())
 
         with torch.no_grad():

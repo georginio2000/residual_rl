@@ -606,3 +606,73 @@ training and round-robin sampling for evaluation, and rerun the 30-pair bridge
 baseline if a full bridge-level confirmation is required. VLA-latent
 extraction and learned gating remain separate follow-up steps, with the VLA
 frozen throughout.
+
+## Thread B: robomimic Square residual RL (non-VLA precision task)
+
+The LIBERO thread above evaluates a VLA-based frozen policy, but LIBERO's own
+success criteria are coarse (region/contact-based), so no LIBERO task offers
+a true tight-tolerance insertion with a single repeatable critical phase --
+the exact shape of task the RL Token paper (Physical Intelligence) targets.
+NutAssemblySquare (robomimic) is a real peg-in-hole insertion task, so this
+thread swaps the frozen VLA for a frozen BC-RNN policy trained on robomimic's
+own demonstrations, and asks the same residual-RL question against a genuine
+insertion task instead of a coarse rearrangement task.
+
+### Frozen base policy
+
+A BC-RNN policy (robomimic's own paper-reproduction config: GMM+LSTM, 2000
+epochs, `configs/robomimic/square_frozen_state.yaml` wraps the resulting
+checkpoint) was trained on robomimic's public 200-demo Square/PH/low-dim
+dataset. See `docs/figures/bc_rnn_baseline_training.png` for the training
+curve. The epoch-800 checkpoint (85% rollout success, matching robomimic's
+published benchmark) is the frozen baseline used by every experiment below.
+
+New infrastructure: `docker/robomimic/train.Dockerfile` (robomimic 0.3.0 +
+robosuite 1.4.1, with a `mujoco_py` compatibility stub -- robomimic's
+`EnvRobosuite` wrapper imports it only for one unused exception type),
+`scripts/robomimic/square_bridge_service.py` (a state/base-action HTTP bridge
+analogous to the LIBERO bridge, serving the loaded BC-RNN checkpoint), and a
+new `remote_robomimic` environment backend that reuses the existing
+LIBERO-bridge client code unchanged (the wire protocol was never
+LIBERO-specific).
+
+### Residual-RL results
+
+| Attempt | Mechanism | Success rate |
+|---|---|---:|
+| Frozen baseline | -- | **85%** |
+| Residual (always-on) | correction applied every step | ~45% (declining) |
+| Gated, gate bias=0.5, λ_gate=0.01 | learned selectivity, weak prior | ~65% (mild decline) |
+| Gated, gate bias=0.1 (fixed), λ_gate=0.02 | learned selectivity, correct prior | peaked ~70% mid-run, 55% final |
+
+See `docs/figures/success_rate_comparison.png` and `docs/figures/gate_trend.png`.
+None of the residual-RL attempts (50,000 steps / ~250 episodes each) reliably
+beat the frozen baseline within this budget, despite fixing two real bugs
+along the way (an unbounded SAC entropy temperature in `rl/sac.py`, and a
+bridge bug that zeroed the reported base action on every episode termination,
+corrupting the SAC critic's bootstrap target for timeout failures -- both
+still relevant to any future config that reuses this code) and one real
+design flaw (gated mode's actor defaulted to ~50% intervention at
+initialization instead of trusting the frozen policy; see
+`ActionComposer.GATE_INIT_BIAS` in `policies/composition.py`).
+
+### Where do the frozen baseline's failures actually occur?
+
+Frame-by-frame inspection of `robomimic.scripts.run_trained_agent` rollouts
+(see `docs/figures/task_square_*.png`) confirms the failures are genuinely
+last-millimeter: a clean success (nut seated on the peg) and a failure where
+the peg is physically knocked over during a careful, deliberate insertion
+attempt use the same reach/grasp/transport motion up to the final contact
+phase. This rules out "wrong task" as the reason residual RL hasn't yet beaten
+the baseline -- the more likely explanation is that a learned gate has to
+solve unsupervised temporal credit assignment (which of ~150-400 steps matter)
+from a sparse episode-terminal reward alone, a much harder problem than the RL
+Token paper's own recipe, which hand-engineers the critical-phase boundary
+(via environment resets or human intervention labels) rather than learning it
+from RL reward.
+
+A promising next step, not yet implemented: trigger the gate from a
+hand-crafted heuristic (ground-truth gripper-to-peg distance and/or gripper
+speed, both readable directly from the bridge's simulator state) instead of
+learning selectivity from scratch, so the RL policy only has to learn the
+correction itself once already inside a known critical window.

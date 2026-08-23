@@ -91,14 +91,16 @@ class SquareBridge:
             raise ValueError("policy action must contain only finite values")
         return action
 
-    def _payload(self, obs: dict, *, terminal: bool = False) -> dict:
+    def _payload(self, obs: dict) -> dict:
+        # Always compute the real base action, even on a terminal/truncated
+        # step: the main project's SAC update bootstraps through truncated
+        # (non-terminated) transitions using this exact "next_base_action",
+        # so a placeholder here would corrupt the critic target for every
+        # episode that ends by timeout rather than success.
         state = flatten_state(obs)
         update_array_digest(self.observation_digest, "state", state)
-        if terminal:
-            base_action = np.zeros(ACTION_DIM, dtype=np.float64)
-        else:
-            base_action = self._base_action(obs)
-            update_array_digest(self.action_digest, "action", base_action)
+        base_action = self._base_action(obs)
+        update_array_digest(self.action_digest, "action", base_action)
         return {
             "observation/state": state.tolist(),
             "base_action": base_action.tolist(),
@@ -143,7 +145,7 @@ class SquareBridge:
         terminated = success
         truncated = bool(self.control_steps >= self.horizon and not terminated)
         response = {
-            "observation": self._payload(obs, terminal=terminated or truncated),
+            "observation": self._payload(obs),
             "reward": float(reward),
             "terminated": terminated,
             "truncated": truncated,

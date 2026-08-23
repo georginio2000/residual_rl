@@ -1,9 +1,9 @@
 experiment:
-  name: robomimic_square_residual
-  mode: residual
+  name: robomimic_square_gated
+  mode: gated
   seed: 0
   device: auto
-  output_dir: runs/robomimic_square_residual
+  output_dir: runs/robomimic_square_gated
 
 environment:
   backend: remote_robomimic
@@ -46,4 +46,4 @@ training:
   evaluation_episodes: 20
   checkpoint_interval: 10000
   lambda_delta: 0.1
-  lambda_gate: 0.0
+  lambda_gate: 0.02
