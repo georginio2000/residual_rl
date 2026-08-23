@@ -131,11 +131,41 @@ def plot_bc_rnn_baseline_curve() -> None:
     plt.close(fig)
 
 
+def plot_speed_comparison() -> None:
+    # From a direct apples-to-apples comparison: both policies evaluated
+    # through the same trigger-instrumented bridge (frozen: 30 episodes,
+    # seed 0; trained TRIGGERED final.pt: 30 episodes, seed 0), restricted to
+    # successful episodes only. See the README's "Does RLT deliver a speed
+    # win" section for the exact commands.
+    labels = ["Total episode\n(successes only)", "Critical phase\n(trigger-active steps)"]
+    frozen = [153.3, 40.7]
+    trained = [140.7, 27.8]
+
+    x = np.arange(len(labels))
+    width = 0.32
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.bar(x - width / 2, frozen, width, label="Frozen baseline (n=23 successes)", color="#6a8caf")
+    ax.bar(x + width / 2, trained, width, label="Trained TRIGGERED policy (n=22 successes)", color="#9b6dd6")
+    for i, (f, t) in enumerate(zip(frozen, trained)):
+        ax.text(i - width / 2, f + 3, f"{f:.0f}", ha="center", fontsize=9)
+        ax.text(i + width / 2, t + 3, f"{t:.0f}", ha="center", fontsize=9)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Mean control steps")
+    ax.set_title("Speed on successful episodes: frozen vs. trained (success rate ~flat)")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(alpha=0.25, axis="y")
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "speed_comparison.png", dpi=160)
+    plt.close(fig)
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_success_rate_comparison()
     plot_gate_trend()
     plot_bc_rnn_baseline_curve()
+    plot_speed_comparison()
     print(f"Wrote figures to {OUT_DIR}")
 
 

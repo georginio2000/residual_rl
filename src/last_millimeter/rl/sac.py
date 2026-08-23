@@ -136,16 +136,22 @@ class SACAgent:
         next_state = tensors["next_state"]
         next_base_action = tensors["next_base_action"]
         terminated = tensors["terminated"]
+        # Defaults to 1.0 for every mode except TRIGGERED (see ReplayBuffer);
+        # multiplying by it means the critic/actor only ever see the action
+        # quantity that actually affected the environment, not a raw output
+        # that a trigger=0 step would have silently discarded.
+        trigger = tensors["trigger"]
+        next_trigger = tensors["next_trigger"]
 
         with torch.no_grad():
             next_actor_input = self._actor_input(next_state, next_base_action)
             next_policy_output, next_log_prob, _ = self.actor.sample(next_actor_input)
-            next_q1, next_q2 = self.target_critics(next_actor_input, next_policy_output)
+            next_q1, next_q2 = self.target_critics(next_actor_input, next_policy_output * next_trigger)
             next_q = torch.minimum(next_q1, next_q2) - self.alpha.detach() * next_log_prob
             target_q = reward + (1.0 - terminated) * self.gamma * next_q
 
         actor_input = self._actor_input(state, base_action)
-        q1, q2 = self.critics(actor_input, replay_policy_output)
+        q1, q2 = self.critics(actor_input, replay_policy_output * trigger)
         q1_loss = torch.nn.functional.mse_loss(q1, target_q)
         q2_loss = torch.nn.functional.mse_loss(q2, target_q)
         critic_loss = q1_loss + q2_loss
@@ -155,7 +161,7 @@ class SACAgent:
 
         self.critics.requires_grad_(False)
         policy_output, log_prob, _ = self.actor.sample(actor_input)
-        policy_q1, policy_q2 = self.critics(actor_input, policy_output)
+        policy_q1, policy_q2 = self.critics(actor_input, policy_output * trigger)
         actor_loss = (self.alpha.detach() * log_prob - torch.minimum(policy_q1, policy_q2)).mean()
         self.actor_optimizer.zero_grad(set_to_none=True)
         actor_loss.backward()

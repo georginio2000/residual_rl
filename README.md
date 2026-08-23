@@ -691,10 +691,69 @@ The result is the most stable run in this whole thread: success rate held in
 a 67.5-80% band for the entire 224-episode run with no decline (vs. steady
 decline for always-on residual, and a rise-then-crash for both learned-gate
 attempts), and the 65% final deterministic-policy evaluation is the best of
-any RL attempt so far. About a third of the remaining failures never trigger
-the correction at all (`gate=0` for the whole episode) -- these are cases
-where the frozen policy's own reach/transport phase stalls before ever
-reaching the calibrated "close and slow" window, a distinct failure category
-the correction cannot address by construction, and a natural place to look
-next (e.g. loosening the trigger condition, or a second heuristic for
-transport-phase failures).
+any RL attempt so far.
+
+### A critic/actor blind spot, found and fixed
+
+The SAC critic and actor were being trained on the actor's *raw* sampled
+output, not the quantity that actually reached the environment
+(`policy_output * trigger`). For every step where `trigger=0` (~80% of an
+episode), the environment transition is identical no matter what the actor
+outputs, so the critic was being asked to fit `Q(s, a)` to many different `a`
+that all have zero real effect -- wasted, noisy learning signal, and the
+actor was getting task gradient from states where its output cannot matter.
+Fixed by threading `trigger`/`next_trigger` through `ReplayBuffer` and
+multiplying both the critic's action input and the actor's own resampled
+output by it in `SACAgent.update` (`rl/replay_buffer.py`, `rl/sac.py`).
+Defaults to `1.0` and is a no-op for every other control mode. Not yet
+retrained with this fix at time of writing -- the results above predate it.
+
+### Does RLT's actual claim hold here? Checking the paper against our own data
+
+The RL Token paper is explicit about what to expect when the frozen policy is
+already competent: *"Where the VLA is already competent (e.g. the Ethernet
+task) it maintains success rate and increases throughput"* -- and separately,
+on Ethernet, RLT *"match[es] the base policy's high success rate while
+reducing mean steps to completion by 2x"* and is *"3x faster in the critical
+phase."* Square's 85% baseline puts it in exactly this regime, so the paper
+itself predicts we should *not* see a big accuracy jump -- the honest
+expectation, before even running anything, is "success rate roughly
+maintained, critical phase faster," not "perfect accuracy."
+
+That is what we measured. Both policies were evaluated through the same
+trigger-instrumented bridge (30 episodes each, same seed): success rate was
+flat within noise (76.7% frozen vs. 73.3% trained), but on successful
+episodes the trained policy cleared the critical phase in a mean **27.8
+steps vs. the frozen policy's 40.7** -- about 32% faster -- and completed the
+whole episode in 141 steps vs. 153. See `docs/figures/speed_comparison.png`.
+This is a smaller effect than RLT's real-robot numbers (2-3x), which is
+expected given a much smaller training budget (~250 simulated episodes vs.
+hours of real robot practice) and that our correction/critic setup was, until
+the fix above, spending part of its capacity on a blind spot RLT's own
+recipe doesn't have. It is the same *direction* and the same *regime* the
+paper describes, on a task the paper never tested.
+
+### What do the trained policy's remaining failures actually look like?
+
+Video inspection (`scripts/robomimic/square_bridge_service.py
+--record-video`, driving the trained checkpoint through
+`last_millimeter.evaluate`) surfaces two distinct failure categories, both
+already visible in the per-episode `trigger_active_fraction` logged to
+`bridge_result.json`:
+
+- **Never triggered** (~25-40% of failures, both frozen and trained): the
+  gripper never gets both close and slow enough to enter the critical-phase
+  window at all within the horizon. The correction never gets a chance to
+  help -- this is a reach/transport-phase failure, not a last-millimeter one,
+  and the trigger design cannot address it by construction.
+- **Stuck inside the window** (e.g. `docs/figures/task_square_trained_stuck_*.png`):
+  the opposite extreme -- one failure spent 81% of its 400 steps (324
+  steps) inside the critical-phase zone without ever completing, getting the
+  nut near the peg early and then fumbling there for the rest of the episode
+  rather than committing to insertion. This looks like a case where the
+  correction is engaged but not decisive enough, a plausible target for a
+  larger `residual_scale` or more training within the window.
+
+Neither category is "wrong task" -- both are legible, specific behaviors
+that suggest concrete next experiments (a looser trigger threshold for the
+first; more training or capacity for the second) rather than a dead end.

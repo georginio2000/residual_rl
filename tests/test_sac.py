@@ -20,10 +20,15 @@ def make_batch(policy_output_dim: int, batch_size: int = 8) -> dict[str, np.ndar
         "next_state": rng.normal(size=(batch_size, 4)).astype(np.float32),
         "next_base_action": rng.uniform(-1, 1, size=(batch_size, 2)).astype(np.float32),
         "terminated": rng.integers(0, 2, size=(batch_size, 1)).astype(np.float32),
+        "trigger": np.ones((batch_size, 1), dtype=np.float32),
+        "next_trigger": np.ones((batch_size, 1), dtype=np.float32),
     }
 
 
-@pytest.mark.parametrize("mode", [ControlMode.SCRATCH, ControlMode.RESIDUAL, ControlMode.GATED])
+@pytest.mark.parametrize(
+    "mode",
+    [ControlMode.SCRATCH, ControlMode.RESIDUAL, ControlMode.GATED, ControlMode.TRIGGERED],
+)
 def test_sac_update_is_finite(mode: ControlMode) -> None:
     composer = ActionComposer(mode, action_dim=2, residual_scale=0.3)
     agent = SACAgent(

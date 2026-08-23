@@ -123,6 +123,8 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 next_state,
                 next_base_action,
                 terminated,
+                trigger=trigger,
+                next_trigger=next_trigger,
             )
 
             episode_task_return += task_reward

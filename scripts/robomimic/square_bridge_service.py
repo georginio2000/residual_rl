@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
+import imageio
 import numpy as np
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.torch_utils as TorchUtils
@@ -81,6 +82,11 @@ def parse_args() -> argparse.Namespace:
         default="and",
         help="combine the close/slow conditions with AND (both required) or OR (either)",
     )
+    parser.add_argument(
+        "--record-video",
+        action="store_true",
+        help="save an mp4 (agentview + wrist camera) for every episode, for offline inspection",
+    )
     return parser.parse_args()
 
 
@@ -105,7 +111,7 @@ class SquareBridge:
             config, _ = FileUtils.config_from_checkpoint(ckpt_dict=ckpt_dict)
             self.horizon = int(config.experiment.rollout.horizon)
         self.env, _ = FileUtils.env_from_checkpoint(
-            ckpt_dict=ckpt_dict, render=False, render_offscreen=False, verbose=True
+            ckpt_dict=ckpt_dict, render=False, render_offscreen=args.record_video, verbose=True
         )
         self._peg_body_id = None
         if args.trigger:
@@ -130,6 +136,16 @@ class SquareBridge:
         self.episode_results: list[dict] = []
         self._prev_eef_pos: np.ndarray | None = None
         self._trigger_active_steps = 0
+        self._video_frames: list[np.ndarray] = []
+
+    def _capture_frame(self) -> None:
+        if not self.args.record_video:
+            return
+        agentview = self.env.render(mode="rgb_array", height=256, width=256, camera_name="agentview")
+        wrist = self.env.render(
+            mode="rgb_array", height=256, width=256, camera_name="robot0_eye_in_hand"
+        )
+        self._video_frames.append(np.concatenate([agentview, wrist], axis=1))
 
     def _base_action(self, obs: dict) -> np.ndarray:
         action = np.asarray(self.policy(ob=obs), dtype=np.float64)
@@ -201,6 +217,8 @@ class SquareBridge:
         self.executed_action_digest = hashlib.sha256()
         self._prev_eef_pos = None
         self._trigger_active_steps = 0
+        self._video_frames = []
+        self._capture_frame()
         return {
             "observation": self._payload(obs),
             "info": {"success": False, "trial_seed": trial_seed},
@@ -219,6 +237,7 @@ class SquareBridge:
         obs, reward, done, info = self.env.step(action.tolist())
         self.control_steps += 1
         self.episode_return += float(reward)
+        self._capture_frame()
         success = bool(self.env.is_success().get("task", False))
         terminated = success
         truncated = bool(self.control_steps >= self.horizon and not terminated)
@@ -254,6 +273,12 @@ class SquareBridge:
             result["trigger_active_fraction"] = (
                 self._trigger_active_steps / self.control_steps if self.control_steps else 0.0
             )
+        if self.args.record_video and self._video_frames:
+            suffix = "success" if success else "failure"
+            video_path = self.args.output_dir / f"episode_{self.episode_index}_{suffix}.mp4"
+            imageio.mimwrite(video_path, self._video_frames, fps=20)
+            result["video"] = str(video_path)
+            self._video_frames = []
         self.episode_results.append(result)
         self.episode_index += 1
         self.active = False

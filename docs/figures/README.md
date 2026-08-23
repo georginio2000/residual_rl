@@ -19,6 +19,10 @@ section for the full experiment narrative.
   above. This is the direct evidence that the frozen policy's failures are
   genuinely last-millimeter contact/precision issues, not earlier mistakes
   (e.g. missed grasps).
+- `task_square_trained_stuck_start.png` / `task_square_trained_stuck_end.png`
+  — the trained TRIGGERED policy's own failure mode: a "stuck inside the
+  window" episode that spent 81% of its 400 steps inside the critical-phase
+  zone without completing, rather than never reaching it at all.
 
 ## Training figures
 
@@ -34,3 +38,9 @@ section for the full experiment narrative.
   for the two gated-mode runs vs. TRIGGERED mode's trigger-active fraction
   (bounded by the heuristic's ~15-30% critical-phase window rather than
   drifting with training dynamics).
+- `speed_comparison.png` — the RL Token paper predicts that on an
+  already-competent baseline, RL should mostly buy *speed*, not accuracy.
+  This is the direct test: frozen vs. trained TRIGGERED policy, restricted to
+  successful episodes, both evaluated through the same trigger-instrumented
+  bridge. Success rate is flat within noise; the critical phase is ~32%
+  faster.
