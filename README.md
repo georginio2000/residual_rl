@@ -772,28 +772,54 @@ which the fix replaced with a slower-but-more-decisive one.
 ### What do the trained policy's remaining failures actually look like?
 
 Video inspection (`scripts/robomimic/square_bridge_service.py
---record-video`, driving the trained checkpoint through
-`last_millimeter.evaluate`) surfaces two distinct failure categories, both
-already visible in the per-episode `trigger_active_fraction` logged to
-`bridge_result.json`. This inspection was done on the pre-critic-fix
-checkpoint; the two categories are properties of the TRIGGERED design itself
-(what the heuristic trigger can and cannot see), so they still describe the
-critic-fix policy's 5/30 remaining speed-comparison failures, but the video
-evidence itself has not been re-captured against the new checkpoint.
+--record-video`, driving the critic-fix checkpoint
+(`runs/robomimic_square_triggered/checkpoints/final.pt`) through
+`last_millimeter.evaluate` with the same config and seed as the speed
+comparison above) surfaces the failure modes directly, using the per-episode
+`trigger_active_fraction` logged to `bridge_result.json` to classify each one.
 
-- **Never triggered** (~25-40% of failures, both frozen and trained): the
+A methodological note first: this video-capture run scored 76.7% (23/30),
+not the 83.3% (25/30) reported earlier for the same checkpoint, config, and
+seed. The base BC-RNN policy samples its action from a GMM head, i.e. it is
+genuinely stochastic per rollout, and that randomness is drawn from the
+bridge process's own RNG stream -- enabling `--record-video` adds rendering
+calls that were not present in the earlier run, which is enough to shift the
+sequence of random draws and diverge trajectories from a fresh bridge
+session, even with an identical `--seed`. Treat 76.7-83.3% as the honest
+range for this checkpoint on this 30-episode sample rather than a single
+precise figure; the two independent samples still agree that it exceeds the
+76.7% frozen baseline (or are at worst tied with it).
+
+The 7 failures in this run split into three categories, not the two seen
+in the pre-fix checkpoint's failures:
+
+- **Never triggered** (1/7, episode 16, `trigger_active_fraction=0.0`; see
+  `docs/figures/task_square_trained_criticfix_never_triggered_*.png`): the
   gripper never gets both close and slow enough to enter the critical-phase
-  window at all within the horizon. The correction never gets a chance to
-  help -- this is a reach/transport-phase failure, not a last-millimeter one,
-  and the trigger design cannot address it by construction.
-- **Stuck inside the window** (e.g. `docs/figures/task_square_trained_stuck_*.png`):
-  the opposite extreme -- one failure spent 81% of its 400 steps (324
-  steps) inside the critical-phase zone without ever completing, getting the
-  nut near the peg early and then fumbling there for the rest of the episode
-  rather than committing to insertion. This looks like a case where the
-  correction is engaged but not decisive enough, a plausible target for a
-  larger `residual_scale` or more training within the window.
+  window at all within the 400-step horizon -- the wrist-camera end frame
+  shows the nut still being carried, never settled into a contact attempt.
+  The correction never gets a chance to help; this is a reach/transport-phase
+  failure, not a last-millimeter one, and the trigger design cannot address
+  it by construction.
+- **Stuck inside the window** (3/7, episodes 2/28/29, fractions 73-81%; see
+  `docs/figures/task_square_trained_criticfix_stuck_window_*.png` for
+  episode 29): the opposite extreme -- these episodes spend the majority of
+  their 400 steps inside the critical-phase zone without ever completing.
+  Episode 29's end frame shows the nut knocked askew right next to the peg
+  rather than seated in it. This looks like a case where the correction is
+  engaged but not decisive enough, a plausible target for a larger
+  `residual_scale` or more training within the window.
+- **Partial engagement** (3/7, episodes 13/17/20, fractions 24-37%): a
+  category not visible in the earlier two-way taxonomy -- the trigger fires
+  substantially (roughly a third of the episode) but not continuously,
+  suggesting the gripper repeatedly enters and drops back out of the
+  distance/speed window without committing, rather than either missing it
+  entirely or camping inside it. This sits between the other two failure
+  modes and is consistent with the trigger's distance/speed thresholds being
+  a coarse, non-learned boundary that the gripper can straddle rather than
+  cleanly cross.
 
-Neither category is "wrong task" -- both are legible, specific behaviors
-that suggest concrete next experiments (a looser trigger threshold for the
-first; more training or capacity for the second) rather than a dead end.
+None of the three categories is "wrong task" -- all are legible, specific
+behaviors that suggest concrete next experiments (a looser trigger threshold
+for the first and third; more training or capacity for the second) rather
+than a dead end.

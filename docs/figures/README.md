@@ -19,10 +19,16 @@ section for the full experiment narrative.
   above. This is the direct evidence that the frozen policy's failures are
   genuinely last-millimeter contact/precision issues, not earlier mistakes
   (e.g. missed grasps).
-- `task_square_trained_stuck_start.png` / `task_square_trained_stuck_end.png`
-  — the trained TRIGGERED policy's own failure mode: a "stuck inside the
-  window" episode that spent 81% of its 400 steps inside the critical-phase
-  zone without completing, rather than never reaching it at all.
+- `task_square_trained_criticfix_never_triggered_start.png` /
+  `_end.png` — the critic-fix TRIGGERED policy's "never triggered" failure
+  mode: the gripper never gets both close and slow enough to enter the
+  critical-phase window within the 400-step horizon, so the correction never
+  gets a chance to act. This is a reach/transport-phase failure, not a
+  last-millimeter one.
+- `task_square_trained_criticfix_stuck_window_start.png` / `_end.png` — the
+  opposite extreme: an episode that spent 81% of its 400 steps inside the
+  critical-phase zone without completing (end frame shows the nut knocked
+  askew next to the peg rather than seated).
 
 ## Training figures
 
@@ -49,6 +55,11 @@ section for the full experiment narrative.
   was training on the actor's raw output instead of the trigger-masked value
   that actually reached the environment), the same 30-episode, same-seed
   comparison shows both a real accuracy gain (83.3% trained vs. 76.7%
-  frozen) and a smaller speed gain (~19% faster critical phase). See the
-  README's "Does RLT's actual claim hold here?" section for the full
+  frozen) and a smaller speed gain (~19% faster critical phase). A separate
+  30-episode sample of the same checkpoint (see "What do the trained
+  policy's remaining failures actually look like?" in the top-level README)
+  scored 76.7%, a reminder that the BC-RNN base policy is genuinely
+  stochastic per rollout so single-sample percentages carry real
+  run-to-run noise; both samples still meet or beat the frozen baseline. See
+  the README's "Does RLT's actual claim hold here?" section for the full
   discussion.
