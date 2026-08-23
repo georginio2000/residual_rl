@@ -823,3 +823,98 @@ None of the three categories is "wrong task" -- all are legible, specific
 behaviors that suggest concrete next experiments (a looser trigger threshold
 for the first and third; more training or capacity for the second) rather
 than a dead end.
+
+### Would more training have helped? A dedicated 100k-step run says no
+
+The 50,000-step critic-fix result above raises an obvious question: is 85-90%
+success a ceiling, or just where training happened to stop? Answering this
+required fixing a real infrastructure gap first -- every evaluation up to
+this point had `training.evaluation_interval: 0` (mid-training evaluation
+disabled entirely), because `evaluate_components()` builds a second
+environment pointed at the *same* remote bridge endpoint as the training
+loop, and closing that second environment (which it always did, at the end
+of its evaluation episodes) tore down the shared bridge process out from
+under the still-running training loop. Every prior result was therefore a
+single snapshot at the very end of training, with zero visibility into
+whether performance was still climbing, had plateaued, or was oscillating
+along the way.
+
+Fixed properly this time: `EnvironmentConfig.eval_endpoint` (`config.py`)
+lets evaluation target an independent bridge server instead of the training
+bridge, and a new `close_env` parameter on `evaluate_components()`
+(`evaluation.py`) lets mid-training evaluation calls leave that independent
+bridge open for reuse at the next checkpoint, since a remote bridge's
+`/close` is a one-way, permanent shutdown -- the first attempt at this fix
+still crashed (at the *second* evaluation checkpoint) because `close_env`
+defaulted to closing the bridge after its very first use. Two independent
+bridge containers (`residual-square-bridge-train` on port 8766,
+`residual-square-bridge-eval` on port 8767) plus this fix gave a real,
+10-point learning curve for the first time: a fresh 100,000-step run (double
+the original budget), evaluated deterministically (10 episodes) against the
+independent eval bridge every 10,000 steps.
+
+See `docs/figures/extended_training_curve.png`:
+
+| Step | 10k | 20k | 30k | 40k | 50k | 60k | 70k | 80k | 90k | 100k |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Success | 80% | 80% | 70% | 80% | 80% | 70% | 70% | 80% | 90% | 80% |
+
+Mean 78%, std 6 points, **no upward or downward trend** -- the curve is flat
+and noisy across the entire range, including the 90% blip at step 90k, which
+looked like a late improvement in real time but was back down to 80% at the
+very next checkpoint. The final evaluation (80%) is statistically
+indistinguishable from the checkpoint at step 10,000 (80%). This is a direct,
+negative answer: doubling the training budget bought nothing measurable.
+
+The loss curves reinforce this rather than contradict it (see
+`docs/figures/loss_curves.png`, and per-run curves under
+`docs/figures/per_run/`): actor loss climbs almost linearly across all three
+critic-fix-era runs (the original 50k run, its retrain, and this 100k
+extension) with no sign of saturating, and critic loss -- always noisy with
+periodic spikes -- develops larger and more frequent spikes as the extended
+run continues past 50k (up to ~250, versus a max of ~130 in either 50k run).
+Together with the flat success-rate curve, the honest reading is that this
+policy converged, in the sense that matters (task performance), by roughly
+10,000-20,000 steps, and the additional 80,000 steps did not find a better
+policy -- if anything, the underlying SAC optimization looks less settled at
+100k than it did earlier, even though that instability hasn't (yet) shown up
+as worse task performance. This rules out "just train longer" as a fix for
+the remaining ~20% failure rate; the three failure categories documented
+above (never-triggered, stuck-in-window, partial engagement) point at
+structural limits of the heuristic trigger and `residual_scale` instead, not
+an undertrained policy.
+
+## Where the raw data lives
+
+Every run referenced in this document has its full episode-by-episode
+history preserved under `results/<run_name>/` (`metrics.csv`, `config.yaml`,
+and `summary.json` where the run completed cleanly), plus the BC-RNN
+baseline's own training log at `results/bc_rnn_baseline/log.txt` and the
+raw 30-episode speed-comparison bridge outputs under
+`results/speed_comparison/`. `docs/figures/per_run/` has one standalone
+success-rate-over-training figure (plus loss curves, where applicable) per
+run, in addition to the cross-run comparison figures in `docs/figures/`
+referenced throughout this document. Model checkpoints (`.pt`/`.pth`) and
+raw rollout videos are not committed to the repository (large binaries,
+regenerable from the configs and commands documented here); everything
+needed to verify or replot every number and figure in this document is in
+`results/` and `docs/figures/`.
+
+`configs/robomimic/*.yaml` hold the *current* version of each config file,
+which was edited in place across iterations (e.g. `square_triggered.yaml` now
+reflects the final 100k dual-bridge setup, not the 50k version it started
+as). The config actually used for each specific run is preserved exactly,
+unmodified, as `results/<run_name>/config.yaml` -- that copy, not the
+current file under `configs/`, is the authoritative record of what produced
+that run's numbers.
+
+| Run | Results (config + metrics + summary) |
+|---|---|
+| Frozen BC-RNN baseline | `results/bc_rnn_baseline/` |
+| Residual (always-on) | `results/robomimic_square_residual/` |
+| Gated, bias=0.5, λ_gate=0.01 | `results/robomimic_square_gated_lambda0p01/` |
+| Gated, bias=0.1 (fixed), λ_gate=0.02 | `results/robomimic_square_gated/` |
+| Triggered, pre critic-fix (50k) | `results/robomimic_square_triggered_precriticfix/` |
+| Triggered, critic-fix (50k) | `results/robomimic_square_triggered_50k_criticfix/` |
+| Triggered, critic-fix, extended (100k) | `results/robomimic_square_triggered/` |
+| Speed comparison (frozen vs. trained) | `results/speed_comparison/` |

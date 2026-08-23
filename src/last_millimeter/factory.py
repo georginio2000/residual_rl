@@ -261,16 +261,27 @@ def _backend_context(env: Environment) -> BackendContext:
 
 
 def make_environment(
-    config: ProjectConfig, backends: BackendRegistry | None = None
+    config: ProjectConfig,
+    backends: BackendRegistry | None = None,
+    *,
+    environment: EnvironmentConfig | None = None,
 ) -> Environment:
+    """Build an environment from `config.environment`, or an override.
+
+    `environment` lets callers (e.g. mid-training evaluation) construct an
+    environment from a different `EnvironmentConfig` than the one driving
+    training, without touching `config` itself -- see
+    `EnvironmentConfig.eval_endpoint`.
+    """
     backends = backends or BackendRegistry.with_defaults()
+    env_config = environment if environment is not None else config.environment
     try:
-        builder = backends.environments[config.environment.backend]
+        builder = backends.environments[env_config.backend]
     except KeyError as exc:
         raise _unknown_backend(
-            "environment", config.environment.backend, backends.environments
+            "environment", env_config.backend, backends.environments
         ) from exc
-    return builder(config.environment)
+    return builder(env_config)
 
 
 def make_components(

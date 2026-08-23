@@ -1,0 +1,18 @@
+{
+  "device": "cpu",
+  "episodes": 454,
+  "experiment": "robomimic_square_triggered",
+  "final_evaluation": {
+    "episodes": 10.0,
+    "mean_correction_norm": 0.021971093986466083,
+    "mean_episode_length": 200.3,
+    "mean_final_distance": NaN,
+    "mean_gate": 0.29189287416185755,
+    "mean_regularized_return": 0.7815822796529391,
+    "mean_task_return": 0.8,
+    "success_rate": 0.8
+  },
+  "mode": "triggered",
+  "steps": 100000,
+  "updates": 99745
+}

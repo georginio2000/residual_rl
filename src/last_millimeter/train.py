@@ -178,6 +178,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                     components,
                     episodes=config.training.evaluation_episodes,
                     seed=config.experiment.seed + 10_000,
+                    close_env=False,
                 )
                 writer.write(**_evaluation_row(step, last_evaluation))
                 print(
@@ -204,6 +205,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 components,
                 episodes=config.training.evaluation_episodes,
                 seed=config.experiment.seed + 10_000,
+                close_env=False,
             )
             writer.write(**_evaluation_row(config.training.total_steps, last_evaluation))
 

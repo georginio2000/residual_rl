@@ -1,0 +1,18 @@
+{
+  "device": "cuda",
+  "episodes": 209,
+  "experiment": "robomimic_square_gated",
+  "final_evaluation": {
+    "episodes": 20.0,
+    "mean_correction_norm": 0.056544382357365267,
+    "mean_episode_length": 253.8,
+    "mean_final_distance": NaN,
+    "mean_gate": 0.39691958956718754,
+    "mean_regularized_return": -1.3859721239380454,
+    "mean_task_return": 0.55,
+    "success_rate": 0.55
+  },
+  "mode": "gated",
+  "steps": 50000,
+  "updates": 49745
+}

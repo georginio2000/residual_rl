@@ -1,10 +1,9 @@
 experiment:
-  name: robomimic_square_triggered
-  mode: triggered
+  name: robomimic_square_gated
+  mode: gated
   seed: 0
-  device: cpu
-  output_dir: runs/robomimic_square_triggered
-
+  device: auto
+  output_dir: runs/robomimic_square_gated
 environment:
   backend: remote_robomimic
   options:
@@ -14,39 +13,44 @@ environment:
     action_low: -2.0
     action_high: 2.0
     action_dtype: float64
-    task_context_dim: 1
     timeout: 120.0
-  eval_endpoint: http://127.0.0.1:8767
-
+  max_episode_steps: 60
+  step_scale: 0.1
+  success_tolerance: 0.035
+  success_bonus: 5.0
+  action_penalty: 0.01
+  process_noise_std: 0.0
 base_policy:
   backend: observation_action
+  gain: 5.0
+  bias:
+  - 0.18
+  - -0.12
   options:
     key: base_action
-
 representation:
-  backend: observation_keys
+  backend: observation_key
   options:
-    feature_dims:
-      observation/state: 23
-      task_context: 1
-
+    key: observation/state
+    output_dim: 23
 agent:
-  hidden_dims: [256, 256]
+  hidden_dims:
+  - 256
+  - 256
   residual_scale: 0.05
   gamma: 0.99
   tau: 0.005
   learning_rate: 0.0003
   alpha: 0.1
   automatic_entropy_tuning: false
-
 training:
-  total_steps: 100000
+  total_steps: 50000
   replay_capacity: 200000
   batch_size: 256
   start_steps: 2000
   updates_per_step: 1
-  evaluation_interval: 10000
-  evaluation_episodes: 10
+  evaluation_interval: 0
+  evaluation_episodes: 20
   checkpoint_interval: 10000
-  lambda_delta: 0.05
-  lambda_gate: 0.0
+  lambda_delta: 0.1
+  lambda_gate: 0.01

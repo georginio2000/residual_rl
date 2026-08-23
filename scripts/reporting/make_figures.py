@@ -28,13 +28,15 @@ RUN_LABELS = {
     "robomimic_square_gated_lambda0p01": "Gated (bias=0.5, λ_gate=0.01)",
     "robomimic_square_gated": "Gated (bias=0.1 fixed, λ_gate=0.02)",
     "robomimic_square_triggered_precriticfix": "Triggered (pre critic-fix)",
-    "robomimic_square_triggered": "Triggered (critic-fix)",
+    "robomimic_square_triggered_50k_criticfix": "Triggered (critic-fix, 50k)",
+    "robomimic_square_triggered": "Triggered (critic-fix, 100k extended)",
 }
 RUN_COLORS = {
     "robomimic_square_residual": "#d97757",
     "robomimic_square_gated_lambda0p01": "#6a8caf",
     "robomimic_square_gated": "#4c9a6b",
     "robomimic_square_triggered_precriticfix": "#c9a8ea",
+    "robomimic_square_triggered_50k_criticfix": "#7a4fb5",
     "robomimic_square_triggered": "#9b6dd6",
 }
 
@@ -88,6 +90,7 @@ def plot_gate_trend() -> None:
         "robomimic_square_gated_lambda0p01",
         "robomimic_square_gated",
         "robomimic_square_triggered_precriticfix",
+        "robomimic_square_triggered_50k_criticfix",
         "robomimic_square_triggered",
     ]
     for run_name in gated_runs:

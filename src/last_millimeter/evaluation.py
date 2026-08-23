@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 
 import numpy as np
 
@@ -11,14 +12,40 @@ from last_millimeter.factory import ExperimentComponents, encode_step, extract_t
 from last_millimeter.policies import ControlMode
 
 
+def _evaluation_environment_config(config: ProjectConfig):
+    """Return the EnvironmentConfig to evaluate against.
+
+    If `environment.eval_endpoint` is set, evaluation targets that endpoint
+    instead of `environment.options["endpoint"]`, so mid-training evaluation
+    can run against an independent bridge process rather than tearing down
+    the training loop's own (stateful, singleton) bridge connection.
+    """
+    if config.environment.eval_endpoint is None:
+        return config.environment
+    options = dict(config.environment.options)
+    options["endpoint"] = config.environment.eval_endpoint
+    return replace(config.environment, options=options)
+
+
 def evaluate_components(
     config: ProjectConfig,
     components: ExperimentComponents,
     *,
     episodes: int,
     seed: int,
+    close_env: bool = True,
 ) -> dict[str, float]:
-    env = make_environment(config, components.backends)
+    """Run a deterministic evaluation rollout.
+
+    `close_env` controls whether the environment is closed afterwards.
+    Remote bridges treat `/close` as a one-way, permanent shutdown of that
+    bridge server session, so repeated mid-training evaluation against the
+    same `eval_endpoint` (see `EnvironmentConfig.eval_endpoint`) must pass
+    `close_env=False` and let the caller close it once, after the last use.
+    """
+    env = make_environment(
+        config, components.backends, environment=_evaluation_environment_config(config)
+    )
     episode_values: dict[str, list[float]] = defaultdict(list)
 
     for episode in range(episodes):
@@ -73,7 +100,8 @@ def evaluate_components(
         episode_values["correction_norm"].append(float(np.mean(correction_norms)))
         episode_values["gate"].append(float(np.mean(gates)))
 
-    env.close()
+    if close_env:
+        env.close()
     components.base_policy.reset()
     return {
         "episodes": float(episodes),

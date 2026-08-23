@@ -30,6 +30,15 @@ class EnvironmentConfig:
     success_bonus: float = 5.0
     action_penalty: float = 0.01
     process_noise_std: float = 0.0
+    eval_endpoint: str | None = None
+    """Optional separate remote-bridge endpoint used only for evaluation.
+
+    Remote bridges (`remote_libero`/`remote_robomimic`) are stateful
+    singletons: a second environment instance pointed at the *same* endpoint
+    as an in-progress training loop will tear down that shared bridge state
+    when it closes. Setting this lets mid-training evaluation run against an
+    independent bridge process instead of being disabled entirely.
+    """
 
 
 @dataclass(slots=True)

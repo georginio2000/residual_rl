@@ -36,16 +36,18 @@ section for the full experiment narrative.
   curve (robomimic BC-RNN, Square/PH/low-dim). The checkpoint used for every
   residual-RL experiment (epoch 800, 85% rollout success) is highlighted.
 - `success_rate_comparison.png` — 12-episode rolling success rate across all
-  five residual-RL attempts (always-on residual, gated with the original 0.5
+  six residual-RL attempts (always-on residual, gated with the original 0.5
   gate-initialization bias, gated with the corrected 0.1 bias, TRIGGERED
-  mode's heuristic gate pre critic-fix, and TRIGGERED mode with the
-  critic/actor trigger-masking fix) against the 85% frozen baseline.
-  Training-time rolling curves look similar pre- and post-fix (both noisy,
-  ~68-74%) because every training episode carries fixed exploration noise —
-  the fix's effect only shows up in the deterministic final evaluation (65%
-  → 90%), not in this rolling training curve.
+  mode's heuristic gate pre critic-fix, TRIGGERED with the critic/actor
+  trigger-masking fix at 50k steps, and the same fix extended to 100k steps)
+  against the 85% frozen baseline. Training-time rolling curves look similar
+  across all three TRIGGERED variants (all noisy, ~68-74%) because every
+  training episode carries fixed exploration noise — the fix's effect only
+  shows up in deterministic evaluation, and the 100k extension's own
+  deterministic curve (`extended_training_curve.png`) shows no further gain
+  from the extra steps.
 - `gate_trend.png` — intervention strength over training: learned gate value
-  for the two gated-mode runs vs. both TRIGGERED runs' trigger-active
+  for the two gated-mode runs vs. all three TRIGGERED runs' trigger-active
   fraction (bounded by the heuristic's ~15-30% critical-phase window rather
   than drifting with training dynamics).
 - `speed_comparison.png` — the RL Token paper predicts that on an
@@ -63,3 +65,20 @@ section for the full experiment narrative.
   run-to-run noise; both samples still meet or beat the frozen baseline. See
   the README's "Does RLT's actual claim hold here?" section for the full
   discussion.
+- `extended_training_curve.png` — the direct answer to "would more training
+  help": deterministic success rate every 10,000 steps across a dedicated
+  100,000-step run (double the original budget), evaluated against an
+  independent bridge so this is a real learning curve, not one end-of-run
+  snapshot. Flat and noisy the entire way (mean 78%, std 6 points, no trend)
+  -- see the README's "Would more training have helped?" section.
+- `loss_curves.png` — SAC critic/actor loss per episode, overlaid across the
+  original 50k critic-fix run, its retrain, and the 100k extension. Actor
+  loss climbs almost linearly with no sign of saturating in any of the three
+  runs; critic loss develops larger, more frequent spikes past step 50,000
+  in the extended run than either 50k run ever showed, even though the
+  success-rate curve above stays flat over the same stretch.
+- `runs/<run_name>.png` — one standalone figure per residual-RL attempt
+  (success rate over training, plus loss curves where applicable), generated
+  directly from that run's own `results/<run_name>/metrics.csv` rather than
+  overlaid against the others. Useful when a single run's own trajectory
+  matters more than the cross-run comparison.
