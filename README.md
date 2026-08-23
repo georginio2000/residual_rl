@@ -640,11 +640,12 @@ LIBERO-specific).
 
 | Attempt | Mechanism | Success rate |
 |---|---|---:|
-| Frozen baseline | -- | **85%** |
+| Frozen baseline | -- | **85%** (76.7% on the 30-ep speed-comparison seed set) |
 | Residual (always-on) | correction applied every step | ~45% (declining) |
 | Gated, gate bias=0.5, λ_gate=0.01 | learned selectivity, weak prior | ~65% (mild decline) |
 | Gated, gate bias=0.1 (fixed), λ_gate=0.02 | learned selectivity, correct prior | peaked ~70% mid-run, 55% final |
-| **Triggered, heuristic gate** | correction confined to a hand-crafted critical-phase window | **stable 68-80% throughout, 65% final** |
+| Triggered, heuristic gate (pre critic-fix) | correction confined to a hand-crafted critical-phase window | stable 68-80% throughout, 65% final |
+| **Triggered, heuristic gate (critic-fix)** | same, with the critic/actor blind spot below fixed | **90% final eval (20 ep), 83.3% on the 30-ep speed-comparison seed set -- beats the frozen baseline** |
 
 See `docs/figures/success_rate_comparison.png` and `docs/figures/gate_trend.png`.
 The first three attempts (50,000 steps / ~250 episodes each) never reliably
@@ -655,7 +656,9 @@ SAC critic's bootstrap target for timeout failures -- both still relevant to
 any future config that reuses this code) and one real design flaw (gated
 mode's actor defaulted to ~50% intervention at initialization instead of
 trusting the frozen policy; see `ActionComposer.GATE_INIT_BIAS` in
-`policies/composition.py`).
+`policies/composition.py`). TRIGGERED mode was the first to reliably match
+the baseline, and after the critic/actor fix described below, the first to
+beat it outright.
 
 ### Where do the frozen baseline's failures actually occur?
 
@@ -705,8 +708,23 @@ actor was getting task gradient from states where its output cannot matter.
 Fixed by threading `trigger`/`next_trigger` through `ReplayBuffer` and
 multiplying both the critic's action input and the actor's own resampled
 output by it in `SACAgent.update` (`rl/replay_buffer.py`, `rl/sac.py`).
-Defaults to `1.0` and is a no-op for every other control mode. Not yet
-retrained with this fix at time of writing -- the results above predate it.
+Defaults to `1.0` and is a no-op for every other control mode.
+
+Retraining with the fix (same config, same 50,000 steps, pre-fix run
+preserved at `runs/robomimic_square_triggered_precriticfix`) moved the final
+deterministic evaluation from 65% to **90%**, beating the 85% frozen
+baseline outright, and cut mean episode length from 236.1 to 178.4 steps.
+Two things are worth noting about how that improvement shows up: the
+*training-time* rolling success rate barely moved (both runs sit in the same
+noisy ~68-74% band throughout, since every training episode carries fixed
+`alpha=0.1` exploration noise) -- the fix only shows up once you look at the
+deterministic policy, which training curves alone would never surface. And
+critic/actor loss did **not** get visibly smoother post-fix (critic_loss's
+max was if anything higher: 131.9 vs 93.4 pre-fix), so the benefit isn't
+"cleaner optimization" -- it's that the critic and actor were previously
+being fit to the wrong target throughout training, and correcting the
+target changed what the deterministic policy converged to, independent of
+how noisy the loss curves look along the way.
 
 ### Does RLT's actual claim hold here? Checking the paper against our own data
 
@@ -720,18 +738,36 @@ itself predicts we should *not* see a big accuracy jump -- the honest
 expectation, before even running anything, is "success rate roughly
 maintained, critical phase faster," not "perfect accuracy."
 
-That is what we measured. Both policies were evaluated through the same
-trigger-instrumented bridge (30 episodes each, same seed): success rate was
-flat within noise (76.7% frozen vs. 73.3% trained), but on successful
-episodes the trained policy cleared the critical phase in a mean **27.8
-steps vs. the frozen policy's 40.7** -- about 32% faster -- and completed the
-whole episode in 141 steps vs. 153. See `docs/figures/speed_comparison.png`.
-This is a smaller effect than RLT's real-robot numbers (2-3x), which is
-expected given a much smaller training budget (~250 simulated episodes vs.
-hours of real robot practice) and that our correction/critic setup was, until
-the fix above, spending part of its capacity on a blind spot RLT's own
-recipe doesn't have. It is the same *direction* and the same *regime* the
-paper describes, on a task the paper never tested.
+The pre-critic-fix measurement matched that prediction almost exactly: both
+policies evaluated through the same trigger-instrumented bridge (30 episodes
+each, same seed), success rate flat within noise (76.7% frozen vs. 73.3%
+trained), critical phase 32% faster (27.8 vs. 40.7 steps). That was the
+expected RLT regime, on a task the paper never tested.
+
+Retraining with the critic/actor fix changes this picture. The same 30-episode,
+same-seed comparison now gives **83.3% success (trained) vs. 76.7% (frozen)**
+-- a real accuracy gain, not just noise -- alongside a smaller but still
+present speed gain: the critical phase drops from 40.7 to 33.1 steps (~19%
+faster) and the whole episode from 153.3 to 141.6 steps (~8% faster). See
+`docs/figures/speed_comparison.png`. The final deterministic evaluation (20
+episodes, the number quoted in the results table above) shows an even larger
+accuracy gap, 90% vs. 85%.
+
+So the honest updated conclusion is: RLT's paper describes what happens when
+the *only* lever pulled is confining learning to a known critical-phase
+window -- speed goes up, accuracy is preserved. Our pre-fix run reproduced
+exactly that. But we also had a second, independent bug (the critic/actor
+blind spot) stacked on top of the setup RLT describes; fixing it moved
+Square's result out of "maintains accuracy" and into "measurably better
+accuracy," a stronger outcome than the paper's own claim for this regime.
+That is not evidence RLT's claim is wrong -- RLT's recipe doesn't have this
+particular blind spot to begin with, so its "accuracy maintained" result
+already reflects a cleaner training signal than our pre-fix run had. It does
+mean the *speed* effect specifically is smaller post-fix (19% vs. 32%) even
+as overall performance improved, consistent with the idea that some of the
+pre-fix "speed-only" gain was actually the critic partially compensating for
+its own blind spot by learning a coarser, faster-but-less-precise policy,
+which the fix replaced with a slower-but-more-decisive one.
 
 ### What do the trained policy's remaining failures actually look like?
 
@@ -739,7 +775,11 @@ Video inspection (`scripts/robomimic/square_bridge_service.py
 --record-video`, driving the trained checkpoint through
 `last_millimeter.evaluate`) surfaces two distinct failure categories, both
 already visible in the per-episode `trigger_active_fraction` logged to
-`bridge_result.json`:
+`bridge_result.json`. This inspection was done on the pre-critic-fix
+checkpoint; the two categories are properties of the TRIGGERED design itself
+(what the heuristic trigger can and cannot see), so they still describe the
+critic-fix policy's 5/30 remaining speed-comparison failures, but the video
+evidence itself has not been re-captured against the new checkpoint.
 
 - **Never triggered** (~25-40% of failures, both frozen and trained): the
   gripper never gets both close and slow enough to enter the critical-phase

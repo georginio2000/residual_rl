@@ -30,17 +30,25 @@ section for the full experiment narrative.
   curve (robomimic BC-RNN, Square/PH/low-dim). The checkpoint used for every
   residual-RL experiment (epoch 800, 85% rollout success) is highlighted.
 - `success_rate_comparison.png` — 12-episode rolling success rate across all
-  four residual-RL attempts (always-on residual, gated with the original 0.5
-  gate-initialization bias, gated with the corrected 0.1 bias, and TRIGGERED
-  mode's heuristic gate) against the 85% frozen baseline. TRIGGERED is the
-  only attempt that spends extended stretches at or above the baseline.
+  five residual-RL attempts (always-on residual, gated with the original 0.5
+  gate-initialization bias, gated with the corrected 0.1 bias, TRIGGERED
+  mode's heuristic gate pre critic-fix, and TRIGGERED mode with the
+  critic/actor trigger-masking fix) against the 85% frozen baseline.
+  Training-time rolling curves look similar pre- and post-fix (both noisy,
+  ~68-74%) because every training episode carries fixed exploration noise —
+  the fix's effect only shows up in the deterministic final evaluation (65%
+  → 90%), not in this rolling training curve.
 - `gate_trend.png` — intervention strength over training: learned gate value
-  for the two gated-mode runs vs. TRIGGERED mode's trigger-active fraction
-  (bounded by the heuristic's ~15-30% critical-phase window rather than
-  drifting with training dynamics).
+  for the two gated-mode runs vs. both TRIGGERED runs' trigger-active
+  fraction (bounded by the heuristic's ~15-30% critical-phase window rather
+  than drifting with training dynamics).
 - `speed_comparison.png` — the RL Token paper predicts that on an
-  already-competent baseline, RL should mostly buy *speed*, not accuracy.
-  This is the direct test: frozen vs. trained TRIGGERED policy, restricted to
-  successful episodes, both evaluated through the same trigger-instrumented
-  bridge. Success rate is flat within noise; the critical phase is ~32%
-  faster.
+  already-competent baseline, RL should mostly buy *speed*, not accuracy —
+  and that is exactly what the pre-critic-fix run showed (flat success,
+  ~32% faster critical phase). After fixing a critic/actor blind spot (SAC
+  was training on the actor's raw output instead of the trigger-masked value
+  that actually reached the environment), the same 30-episode, same-seed
+  comparison shows both a real accuracy gain (83.3% trained vs. 76.7%
+  frozen) and a smaller speed gain (~19% faster critical phase). See the
+  README's "Does RLT's actual claim hold here?" section for the full
+  discussion.

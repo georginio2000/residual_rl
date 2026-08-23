@@ -27,12 +27,14 @@ RUN_LABELS = {
     "robomimic_square_residual": "Residual (always-on)",
     "robomimic_square_gated_lambda0p01": "Gated (bias=0.5, λ_gate=0.01)",
     "robomimic_square_gated": "Gated (bias=0.1 fixed, λ_gate=0.02)",
-    "robomimic_square_triggered": "Triggered (heuristic gate)",
+    "robomimic_square_triggered_precriticfix": "Triggered (pre critic-fix)",
+    "robomimic_square_triggered": "Triggered (critic-fix)",
 }
 RUN_COLORS = {
     "robomimic_square_residual": "#d97757",
     "robomimic_square_gated_lambda0p01": "#6a8caf",
     "robomimic_square_gated": "#4c9a6b",
+    "robomimic_square_triggered_precriticfix": "#c9a8ea",
     "robomimic_square_triggered": "#9b6dd6",
 }
 
@@ -85,6 +87,7 @@ def plot_gate_trend() -> None:
     gated_runs = [
         "robomimic_square_gated_lambda0p01",
         "robomimic_square_gated",
+        "robomimic_square_triggered_precriticfix",
         "robomimic_square_triggered",
     ]
     for run_name in gated_runs:
@@ -134,25 +137,26 @@ def plot_bc_rnn_baseline_curve() -> None:
 def plot_speed_comparison() -> None:
     # From a direct apples-to-apples comparison: both policies evaluated
     # through the same trigger-instrumented bridge (frozen: 30 episodes,
-    # seed 0; trained TRIGGERED final.pt: 30 episodes, seed 0), restricted to
-    # successful episodes only. See the README's "Does RLT deliver a speed
-    # win" section for the exact commands.
+    # seed 10000; trained TRIGGERED final.pt with the critic/actor trigger-
+    # masking fix: 30 episodes, seed 10000), restricted to successful
+    # episodes only. See the README's "Does RLT deliver a speed win" section
+    # for the exact commands.
     labels = ["Total episode\n(successes only)", "Critical phase\n(trigger-active steps)"]
     frozen = [153.3, 40.7]
-    trained = [140.7, 27.8]
+    trained = [141.6, 33.1]
 
     x = np.arange(len(labels))
     width = 0.32
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.bar(x - width / 2, frozen, width, label="Frozen baseline (n=23 successes)", color="#6a8caf")
-    ax.bar(x + width / 2, trained, width, label="Trained TRIGGERED policy (n=22 successes)", color="#9b6dd6")
+    ax.bar(x - width / 2, frozen, width, label="Frozen baseline (76.7% success, n=23/30)", color="#6a8caf")
+    ax.bar(x + width / 2, trained, width, label="Trained TRIGGERED, critic-fix (83.3% success, n=25/30)", color="#9b6dd6")
     for i, (f, t) in enumerate(zip(frozen, trained)):
         ax.text(i - width / 2, f + 3, f"{f:.0f}", ha="center", fontsize=9)
         ax.text(i + width / 2, t + 3, f"{t:.0f}", ha="center", fontsize=9)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylabel("Mean control steps")
-    ax.set_title("Speed on successful episodes: frozen vs. trained (success rate ~flat)")
+    ax.set_title("Speed on successful episodes: frozen vs. trained (both faster and more successful)")
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(alpha=0.25, axis="y")
     fig.tight_layout()
