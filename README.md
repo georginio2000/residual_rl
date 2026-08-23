@@ -522,6 +522,13 @@ accelerator-level action differences, so direct-loop and bridge results are
 reported separately rather than treated as bitwise-equivalent runs. Sampled
 VRAM during this longer bridge evaluation was 9,365 MiB / 12,288 MiB.
 
+Video inspection of these rollouts (frame-by-frame stills at
+`results/libero_10_task8_verify/`, raw `result.json` alongside them) is what
+ruled task 8 out as a "last millimeter" task and motivated the pivot to
+Thread B below: LIBERO's coarse region/contact-based success criteria don't
+isolate a single repeatable tight-tolerance contact phase the way a real
+peg-in-hole insertion does.
+
 ### Multi-task Spatial bridge and oracle control
 
 For joint Spatial experiments, launch one bridge that allows all ten tasks:
@@ -918,3 +925,4 @@ that run's numbers.
 | Triggered, critic-fix (50k) | `results/robomimic_square_triggered_50k_criticfix/` |
 | Triggered, critic-fix, extended (100k) | `results/robomimic_square_triggered/` |
 | Speed comparison (frozen vs. trained) | `results/speed_comparison/` |
+| LIBERO-10 task 8 verification (Thread A, abandoned) | `results/libero_10_task8_verify/` |

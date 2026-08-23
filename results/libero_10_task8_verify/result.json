@@ -1,0 +1,174 @@
+{
+  "action_bias": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "action_bias_x": 0.0,
+  "batch_size": 1,
+  "episodes": [
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "3f5ef9d7d081362bd9c75bae03da3d1ea448ffc582396269507111c57c5b944c",
+      "episode": 0,
+      "executed_action_trace_sha256": "f5f57d62baf2df11bdb44489bbdad7c720be90029330801478ee06184e22fe98",
+      "first_action": [
+        0.38739597046613683,
+        0.22095390124773973,
+        0.003673493201017286,
+        -0.025634881053754985,
+        0.017192846413744634,
+        -0.06874869490748917,
+        -0.9990632019126415
+      ],
+      "first_executed_action": [
+        0.38739597046613683,
+        0.22095390124773973,
+        0.003673493201017286,
+        -0.025634881053754985,
+        0.017192846413744634,
+        -0.06874869490748917,
+        -0.9990632019126415
+      ],
+      "inference_requests": 88,
+      "initial_state_id": 0,
+      "observation_trace_sha256": "b792f404637f33ccd1ee57fd519101a9ba39d2369f6702250373d7805ef6f280",
+      "steps": 447,
+      "success": true,
+      "video": "/data/task_8_episode_0_success.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "ffff44bdfb6a625e7cab7b052b578a03ca9ad706fbd58cf046a1768e9282fad2",
+      "episode": 1,
+      "executed_action_trace_sha256": "ab0ea42b3ef6260251691dd45312daadd6f6c81ed919af48d3b9c862df8339b8",
+      "first_action": [
+        0.21866961867016543,
+        0.11010595222580422,
+        0.011501746563196136,
+        -0.005531473332401282,
+        0.024895879160263895,
+        -0.0504240900133012,
+        -1.0060105251330138
+      ],
+      "first_executed_action": [
+        0.21866961867016543,
+        0.11010595222580422,
+        0.011501746563196136,
+        -0.005531473332401282,
+        0.024895879160263895,
+        -0.0504240900133012,
+        -1.0060105251330138
+      ],
+      "inference_requests": 74,
+      "initial_state_id": 1,
+      "observation_trace_sha256": "0176dc0d1d950d7e3c61bcf94cde5be8ad3577f8ce06663ee98644cf5b4241b8",
+      "steps": 377,
+      "success": true,
+      "video": "/data/task_8_episode_1_success.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "380807c7f1428040da44600369002c161c293b319c7717ef0c728487c823a56c",
+      "episode": 2,
+      "executed_action_trace_sha256": "e94f11b54e3ad53fe846e061d4269bdaf18aa04c677c74ba3efc936f32b51290",
+      "first_action": [
+        0.062348944449514,
+        0.12555043376290786,
+        0.009097961028218249,
+        -0.0007595135426307908,
+        0.003744745355792084,
+        -0.04755976389842492,
+        -0.9976669436946511
+      ],
+      "first_executed_action": [
+        0.062348944449514,
+        0.12555043376290786,
+        0.009097961028218249,
+        -0.0007595135426307908,
+        0.003744745355792084,
+        -0.04755976389842492,
+        -0.9976669436946511
+      ],
+      "inference_requests": 104,
+      "initial_state_id": 2,
+      "observation_trace_sha256": "4076932547a6076886c8a7181b25c83f7a346331f1218ac649de0e26f742bd1e",
+      "steps": 530,
+      "success": false,
+      "video": "/data/task_8_episode_2_failure.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "4e1ecabfbe394010477f563d8512cc7100ea4f5fbbb911b9fb09a41b6c1f0a0a",
+      "episode": 3,
+      "executed_action_trace_sha256": "af61a275a93c326f894a65e74a2fe98b1b4d5970dd7c9f5430781abc61f433db",
+      "first_action": [
+        0.35075611061549183,
+        -0.0250007451754809,
+        0.07612718490314485,
+        0.0010263174239341782,
+        0.12245707116746146,
+        -0.00860547770027495,
+        -1.0013799298034907
+      ],
+      "first_executed_action": [
+        0.35075611061549183,
+        -0.0250007451754809,
+        0.07612718490314485,
+        0.0010263174239341782,
+        0.12245707116746146,
+        -0.00860547770027495,
+        -1.0013799298034907
+      ],
+      "inference_requests": 76,
+      "initial_state_id": 3,
+      "observation_trace_sha256": "d6b2afd9259f1b66b89dd865840eed247670241f406ba02a6fe984d1f33fb66f",
+      "steps": 388,
+      "success": true,
+      "video": "/data/task_8_episode_3_success.mp4"
+    },
+    {
+      "action_dtype": "float64",
+      "action_trace_sha256": "2619f00d0e171ef5eb1a5266b8ccfa7eb8946665ac0d4a26848cb2ba03fabe7a",
+      "episode": 4,
+      "executed_action_trace_sha256": "b5824ac31177d5e24c5f45882c74cf18452274b2b0f43e6536751532136b788e",
+      "first_action": [
+        0.20478644480073438,
+        0.005218061648368799,
+        -0.018174551851987908,
+        0.0011674777686604132,
+        0.0007607661956885448,
+        -0.06712860211122143,
+        -1.0020921823951006
+      ],
+      "first_executed_action": [
+        0.20478644480073438,
+        0.005218061648368799,
+        -0.018174551851987908,
+        0.0011674777686604132,
+        0.0007607661956885448,
+        -0.06712860211122143,
+        -1.0020921823951006
+      ],
+      "inference_requests": 104,
+      "initial_state_id": 4,
+      "observation_trace_sha256": "ac7898ec95a14969071958e9483dac63eba226239ff70993e19f91adbc6ebe2f",
+      "steps": 530,
+      "success": false,
+      "video": "/data/task_8_episode_4_failure.mp4"
+    }
+  ],
+  "initial_state_offset": 0,
+  "policy": "frozen pi05_libero",
+  "seed": 7,
+  "success_rate": 0.6,
+  "successes": 3,
+  "task_description": "put both moka pots on the stove",
+  "task_id": 8,
+  "task_suite": "libero_10",
+  "trials": 5
+}
