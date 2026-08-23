@@ -8,6 +8,13 @@ Unlike the LIBERO bridge, this is single-task, low-dimensional-only (no
 camera observations), and the base policy predicts one action per step
 directly (no VLA-style action chunking), so the protocol is simpler: no
 task-suite/task-id selection and no action-chunk replanning buffer.
+
+Optionally computes a heuristic "critical phase" trigger from ground-truth
+simulator state (gripper-to-peg distance and/or gripper speed) and reports it
+as a 1-dim task_context, for use with last_millimeter's TRIGGERED control
+mode. This hand-crafts the RL Token paper's critical-phase boundary instead
+of asking a learned gate to discover it from a sparse episode-terminal
+reward.
 """
 
 from __future__ import annotations
@@ -45,6 +52,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--horizon", type=int, default=None, help="override rollout horizon from config")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output-dir", type=Path, default=Path("/data/square_bridge"))
+    parser.add_argument(
+        "--trigger",
+        action="store_true",
+        help="report a heuristic critical-phase trigger as a 1-dim task_context",
+    )
+    parser.add_argument(
+        "--distance-threshold",
+        type=float,
+        default=0.14,
+        help=(
+            "gripper-to-peg distance (meters) below which the phase counts as "
+            "'close'. Calibrated empirically against the frozen policy's own "
+            "rollouts: distance is measured to the peg body's origin (its "
+            "base, not the insertion point at its top), so it bottoms out "
+            "around 0.11m even at a successful insertion rather than near 0."
+        ),
+    )
+    parser.add_argument(
+        "--speed-threshold",
+        type=float,
+        default=0.02,
+        help="gripper displacement per control step (meters) below which the phase counts as 'slow'",
+    )
+    parser.add_argument(
+        "--trigger-logic",
+        choices=["and", "or"],
+        default="and",
+        help="combine the close/slow conditions with AND (both required) or OR (either)",
+    )
     return parser.parse_args()
 
 
@@ -71,6 +107,16 @@ class SquareBridge:
         self.env, _ = FileUtils.env_from_checkpoint(
             ckpt_dict=ckpt_dict, render=False, render_offscreen=False, verbose=True
         )
+        self._peg_body_id = None
+        if args.trigger:
+            raw_env = self.env.env
+            self._peg_body_id = raw_env.sim.model.body_name2id("peg1")
+            logging.info(
+                "heuristic trigger enabled: distance<%.3fm %s speed<%.3fm/step",
+                args.distance_threshold,
+                args.trigger_logic.upper(),
+                args.speed_threshold,
+            )
 
         self.rng = np.random.default_rng(args.seed)
         self.active = False
@@ -82,6 +128,8 @@ class SquareBridge:
         self.action_digest = None
         self.executed_action_digest = None
         self.episode_results: list[dict] = []
+        self._prev_eef_pos: np.ndarray | None = None
+        self._trigger_active_steps = 0
 
     def _base_action(self, obs: dict) -> np.ndarray:
         action = np.asarray(self.policy(ob=obs), dtype=np.float64)
@@ -90,6 +138,31 @@ class SquareBridge:
         if not np.all(np.isfinite(action)):
             raise ValueError("policy action must contain only finite values")
         return action
+
+    def _compute_trigger(self, obs: dict) -> float:
+        """Heuristic "critical phase" signal from ground-truth simulator state.
+
+        Uses the raw peg body position (not the opaque low-dim "object"
+        vector) so this is legible and independently checkable. Speed is a
+        per-control-step displacement proxy (finite difference of eef_pos),
+        not a true velocity -- adequate for a coarse "moving slowly/
+        deliberately" signal without needing an explicit dt.
+        """
+        eef_pos = np.asarray(obs["robot0_eef_pos"], dtype=np.float64)
+        peg_pos = np.asarray(self.env.env.sim.data.body_xpos[self._peg_body_id], dtype=np.float64)
+        distance = float(np.linalg.norm(eef_pos - peg_pos))
+        if self._prev_eef_pos is None:
+            speed = 0.0
+        else:
+            speed = float(np.linalg.norm(eef_pos - self._prev_eef_pos))
+        self._prev_eef_pos = eef_pos.copy()
+
+        close = distance < self.args.distance_threshold
+        slow = speed < self.args.speed_threshold
+        triggered = (close and slow) if self.args.trigger_logic == "and" else (close or slow)
+        if triggered:
+            self._trigger_active_steps += 1
+        return 1.0 if triggered else 0.0
 
     def _payload(self, obs: dict) -> dict:
         # Always compute the real base action, even on a terminal/truncated
@@ -101,10 +174,13 @@ class SquareBridge:
         update_array_digest(self.observation_digest, "state", state)
         base_action = self._base_action(obs)
         update_array_digest(self.action_digest, "action", base_action)
-        return {
+        payload = {
             "observation/state": state.tolist(),
             "base_action": base_action.tolist(),
         }
+        if self.args.trigger:
+            payload["task_context"] = [self._compute_trigger(obs)]
+        return payload
 
     def reset(self, payload: dict) -> dict:
         if self.closed:
@@ -123,6 +199,8 @@ class SquareBridge:
         self.observation_digest = hashlib.sha256()
         self.action_digest = hashlib.sha256()
         self.executed_action_digest = hashlib.sha256()
+        self._prev_eef_pos = None
+        self._trigger_active_steps = 0
         return {
             "observation": self._payload(obs),
             "info": {"success": False, "trial_seed": trial_seed},
@@ -171,6 +249,11 @@ class SquareBridge:
             "action_trace_sha256": self.action_digest.hexdigest(),
             "executed_action_trace_sha256": self.executed_action_digest.hexdigest(),
         }
+        if self.args.trigger:
+            result["trigger_active_steps"] = self._trigger_active_steps
+            result["trigger_active_fraction"] = (
+                self._trigger_active_steps / self.control_steps if self.control_steps else 0.0
+            )
         self.episode_results.append(result)
         self.episode_index += 1
         self.active = False

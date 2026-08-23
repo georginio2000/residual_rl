@@ -644,17 +644,18 @@ LIBERO-specific).
 | Residual (always-on) | correction applied every step | ~45% (declining) |
 | Gated, gate bias=0.5, λ_gate=0.01 | learned selectivity, weak prior | ~65% (mild decline) |
 | Gated, gate bias=0.1 (fixed), λ_gate=0.02 | learned selectivity, correct prior | peaked ~70% mid-run, 55% final |
+| **Triggered, heuristic gate** | correction confined to a hand-crafted critical-phase window | **stable 68-80% throughout, 65% final** |
 
 See `docs/figures/success_rate_comparison.png` and `docs/figures/gate_trend.png`.
-None of the residual-RL attempts (50,000 steps / ~250 episodes each) reliably
-beat the frozen baseline within this budget, despite fixing two real bugs
-along the way (an unbounded SAC entropy temperature in `rl/sac.py`, and a
-bridge bug that zeroed the reported base action on every episode termination,
-corrupting the SAC critic's bootstrap target for timeout failures -- both
-still relevant to any future config that reuses this code) and one real
-design flaw (gated mode's actor defaulted to ~50% intervention at
-initialization instead of trusting the frozen policy; see
-`ActionComposer.GATE_INIT_BIAS` in `policies/composition.py`).
+The first three attempts (50,000 steps / ~250 episodes each) never reliably
+beat the frozen baseline, despite fixing two real bugs along the way (an
+unbounded SAC entropy temperature in `rl/sac.py`, and a bridge bug that
+zeroed the reported base action on every episode termination, corrupting the
+SAC critic's bootstrap target for timeout failures -- both still relevant to
+any future config that reuses this code) and one real design flaw (gated
+mode's actor defaulted to ~50% intervention at initialization instead of
+trusting the frozen policy; see `ActionComposer.GATE_INIT_BIAS` in
+`policies/composition.py`).
 
 ### Where do the frozen baseline's failures actually occur?
 
@@ -663,16 +664,37 @@ Frame-by-frame inspection of `robomimic.scripts.run_trained_agent` rollouts
 last-millimeter: a clean success (nut seated on the peg) and a failure where
 the peg is physically knocked over during a careful, deliberate insertion
 attempt use the same reach/grasp/transport motion up to the final contact
-phase. This rules out "wrong task" as the reason residual RL hasn't yet beaten
-the baseline -- the more likely explanation is that a learned gate has to
-solve unsupervised temporal credit assignment (which of ~150-400 steps matter)
-from a sparse episode-terminal reward alone, a much harder problem than the RL
-Token paper's own recipe, which hand-engineers the critical-phase boundary
-(via environment resets or human intervention labels) rather than learning it
-from RL reward.
+phase. This rules out "wrong task" as the reason the first three attempts
+never beat the baseline -- the real explanation is that a *learned* gate has
+to solve unsupervised temporal credit assignment (which of ~150-400 steps
+matter) from a sparse episode-terminal reward alone, a much harder problem
+than the RL Token paper's own recipe, which hand-engineers the critical-phase
+boundary (via environment resets or human intervention labels) rather than
+learning it from RL reward.
 
-A promising next step, not yet implemented: trigger the gate from a
-hand-crafted heuristic (ground-truth gripper-to-peg distance and/or gripper
-speed, both readable directly from the bridge's simulator state) instead of
-learning selectivity from scratch, so the RL policy only has to learn the
-correction itself once already inside a known critical window.
+### TRIGGERED mode: hand-crafting the critical-phase boundary
+
+`ControlMode.TRIGGERED` (`policies/composition.py`) replaces the learned gate
+with a heuristic computed directly from ground-truth simulator state in
+`scripts/robomimic/square_bridge_service.py --trigger`: the gripper is
+"in the critical phase" when it is both close to the peg (empirically
+calibrated against the frozen policy's own rollouts -- distance is measured
+to the peg body's *origin*, which is at its base, so it bottoms out around
+0.11m even at a successful insertion rather than near 0) and moving slowly
+(a per-step displacement proxy). The actor now only has to learn *what*
+correction to apply once already inside a known ~15-30%-of-episode window,
+not *when* -- exactly what the RL Token paper's own recipe does by resetting
+into the critical phase or using human intervention labels, rather than
+asking RL to discover the boundary from a sparse reward.
+
+The result is the most stable run in this whole thread: success rate held in
+a 67.5-80% band for the entire 224-episode run with no decline (vs. steady
+decline for always-on residual, and a rise-then-crash for both learned-gate
+attempts), and the 65% final deterministic-policy evaluation is the best of
+any RL attempt so far. About a third of the remaining failures never trigger
+the correction at all (`gate=0` for the whole episode) -- these are cases
+where the frozen policy's own reach/transport phase stalls before ever
+reaching the calibrated "close and slow" window, a distinct failure category
+the correction cannot address by construction, and a natural place to look
+next (e.g. loosening the trigger condition, or a second heuristic for
+transport-phase failures).

@@ -12,7 +12,7 @@ import torch
 
 from last_millimeter.config import ProjectConfig, load_config, save_config
 from last_millimeter.evaluation import evaluate_components
-from last_millimeter.factory import encode_step, make_components, make_environment
+from last_millimeter.factory import encode_step, extract_trigger, make_components, make_environment
 from last_millimeter.metrics import MetricWriter, write_json
 from last_millimeter.policies import ControlMode
 from last_millimeter.rl import ReplayBuffer
@@ -85,6 +85,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
     observation, _ = env.reset(seed=config.experiment.seed)
     components.base_policy.reset()
     state, base_action = encode_step(observation, components)
+    trigger = extract_trigger(observation)
     episode = 0
     episode_task_return = 0.0
     episode_regularized_return = 0.0
@@ -102,11 +103,12 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 policy_output = components.agent.select_policy_output(
                     state, base_action, deterministic=False
                 )
-            intervention = components.composer.compose(base_action, policy_output)
+            intervention = components.composer.compose(base_action, policy_output, trigger=trigger)
             next_observation, task_reward, terminated, truncated, info = env.step(
                 intervention.executed_action
             )
             next_state, next_base_action = encode_step(next_observation, components)
+            next_trigger = extract_trigger(next_observation)
 
             intervention_penalty = (
                 config.training.lambda_delta * float(np.square(intervention.correction).sum())
@@ -153,6 +155,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 observation, _ = env.reset()
                 components.base_policy.reset()
                 state, base_action = encode_step(observation, components)
+                trigger = extract_trigger(observation)
                 episode_task_return = 0.0
                 episode_regularized_return = 0.0
                 episode_corrections.clear()
@@ -162,6 +165,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 observation = next_observation
                 state = next_state
                 base_action = next_base_action
+                trigger = next_trigger
 
             if (
                 config.training.evaluation_interval > 0
@@ -182,6 +186,7 @@ def run_training(config: ProjectConfig) -> dict[str, Any]:
                 )
                 components.base_policy.reset()
                 state, base_action = encode_step(observation, components)
+                trigger = extract_trigger(observation)
 
             if (
                 config.training.checkpoint_interval > 0

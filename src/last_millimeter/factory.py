@@ -336,3 +336,19 @@ def encode_step(
     state = components.encoder.encode(observation)
     base_action = components.base_policy.act(observation)
     return state, base_action
+
+
+def extract_trigger(observation: Any) -> float:
+    """Read a heuristic gate trigger for TRIGGERED mode from `task_context`.
+
+    Environments that support the heuristic-gated setup (see
+    ControlMode.TRIGGERED) report a hand-crafted "in critical phase" signal
+    as the first element of their task_context observation. Environments
+    without task_context simply always trigger (trigger=1.0), which for
+    every other control mode is an unused no-op default.
+    """
+    if isinstance(observation, dict) and "task_context" in observation:
+        task_context = np.asarray(observation["task_context"], dtype=np.float32)
+        if task_context.size > 0:
+            return float(task_context[0])
+    return 1.0

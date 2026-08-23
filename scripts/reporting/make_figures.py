@@ -27,11 +27,13 @@ RUN_LABELS = {
     "robomimic_square_residual": "Residual (always-on)",
     "robomimic_square_gated_lambda0p01": "Gated (bias=0.5, λ_gate=0.01)",
     "robomimic_square_gated": "Gated (bias=0.1 fixed, λ_gate=0.02)",
+    "robomimic_square_triggered": "Triggered (heuristic gate)",
 }
 RUN_COLORS = {
     "robomimic_square_residual": "#d97757",
     "robomimic_square_gated_lambda0p01": "#6a8caf",
     "robomimic_square_gated": "#4c9a6b",
+    "robomimic_square_triggered": "#9b6dd6",
 }
 
 
@@ -80,7 +82,11 @@ def plot_success_rate_comparison() -> None:
 def plot_gate_trend() -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
     window = 12
-    gated_runs = ["robomimic_square_gated_lambda0p01", "robomimic_square_gated"]
+    gated_runs = [
+        "robomimic_square_gated_lambda0p01",
+        "robomimic_square_gated",
+        "robomimic_square_triggered",
+    ]
     for run_name in gated_runs:
         rows = load_episode_rows(RUNS / run_name)
         if not rows:
@@ -93,8 +99,8 @@ def plot_gate_trend() -> None:
     ax.axhline(0.5, color="#999999", linestyle=":", linewidth=1, label="Initial bias = 0.5 (old)")
     ax.axhline(0.1, color="#333333", linestyle=":", linewidth=1, label="Initial bias = 0.1 (fixed)")
     ax.set_xlabel("Training episode")
-    ax.set_ylabel(f"Gate value ({window}-episode rolling mean)")
-    ax.set_title("Gated mode: learned intervention strength over training")
+    ax.set_ylabel(f"Gate value / trigger-active fraction ({window}-episode rolling mean)")
+    ax.set_title("Intervention strength over training: learned gate vs. heuristic trigger")
     ax.set_ylim(0, 1)
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(alpha=0.25)

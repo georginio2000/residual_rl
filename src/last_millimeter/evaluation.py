@@ -7,7 +7,7 @@ from collections import defaultdict
 import numpy as np
 
 from last_millimeter.config import ProjectConfig
-from last_millimeter.factory import ExperimentComponents, encode_step, make_environment
+from last_millimeter.factory import ExperimentComponents, encode_step, extract_trigger, make_environment
 from last_millimeter.policies import ControlMode
 
 
@@ -25,6 +25,7 @@ def evaluate_components(
         observation, _ = env.reset(seed=seed + episode)
         components.base_policy.reset()
         state, base_action = encode_step(observation, components)
+        trigger = extract_trigger(observation)
         task_return = 0.0
         regularized_return = 0.0
         correction_norms: list[float] = []
@@ -41,7 +42,7 @@ def evaluate_components(
                 policy_output = components.agent.select_policy_output(
                     state, base_action, deterministic=True
                 )
-            intervention = components.composer.compose(base_action, policy_output)
+            intervention = components.composer.compose(base_action, policy_output, trigger=trigger)
             next_observation, reward, terminated, truncated, info = env.step(
                 intervention.executed_action
             )
@@ -62,6 +63,7 @@ def evaluate_components(
                 break
             observation = next_observation
             state, base_action = encode_step(observation, components)
+            trigger = extract_trigger(observation)
 
         episode_values["task_return"].append(task_return)
         episode_values["regularized_return"].append(regularized_return)

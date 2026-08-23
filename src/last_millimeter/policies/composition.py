@@ -15,6 +15,7 @@ class ControlMode(str, Enum):
     SCRATCH = "scratch"
     RESIDUAL = "residual"
     GATED = "gated"
+    TRIGGERED = "triggered"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,14 @@ class ActionComposer:
     # near-baseline behavior. The scale is set to (1 - bias) so the gate can
     # still reach a full 1.0 at the actor's output extreme.
     GATE_INIT_BIAS = 0.1
+
+    # TRIGGERED mode: like RESIDUAL (actor predicts only a correction, no
+    # learned gate), but the gate is a heuristic external signal supplied by
+    # the environment (e.g. "gripper is close to the peg and moving slowly")
+    # rather than something the actor has to learn to predict from a sparse
+    # episode-terminal reward. `compose`/`compose_tensor` take an explicit
+    # `trigger` argument for this mode; callers are expected to source it
+    # from the environment's `task_context` observation.
 
     def __init__(
         self,
@@ -60,7 +69,7 @@ class ActionComposer:
 
     @property
     def actor_uses_base_action(self) -> bool:
-        return self.mode in (ControlMode.RESIDUAL, ControlMode.GATED)
+        return self.mode in (ControlMode.RESIDUAL, ControlMode.GATED, ControlMode.TRIGGERED)
 
     def policy_output_scale(self) -> np.ndarray:
         """Affine scale applied after tanh by the stochastic actor."""
@@ -71,7 +80,7 @@ class ActionComposer:
                     np.asarray([1.0 - self.GATE_INIT_BIAS], dtype=np.float32),
                 )
             )
-        if self.mode is ControlMode.RESIDUAL:
+        if self.mode in (ControlMode.RESIDUAL, ControlMode.TRIGGERED):
             return np.full(self.action_dim, self.residual_scale, dtype=np.float32)
         if self.mode is ControlMode.SCRATCH:
             return np.full(self.action_dim, (self.action_high - self.action_low) / 2, dtype=np.float32)
@@ -90,7 +99,12 @@ class ActionComposer:
             return np.full(self.action_dim, midpoint, dtype=np.float32)
         return np.zeros(self.policy_output_dim, dtype=np.float32)
 
-    def compose(self, base_action: np.ndarray, policy_output: np.ndarray | None) -> Intervention:
+    def compose(
+        self,
+        base_action: np.ndarray,
+        policy_output: np.ndarray | None,
+        trigger: float = 1.0,
+    ) -> Intervention:
         base_action = np.asarray(base_action)
         if base_action.shape != (self.action_dim,):
             raise ValueError(f"base action must have shape ({self.action_dim},)")
@@ -118,6 +132,10 @@ class ActionComposer:
                 correction = policy_output
                 gate = 1.0
                 executed = base_action + correction
+            elif self.mode is ControlMode.TRIGGERED:
+                gate = float(np.clip(trigger, 0.0, 1.0))
+                correction = policy_output * gate
+                executed = base_action + correction
             else:
                 correction = policy_output[: self.action_dim]
                 gate = float(np.clip(policy_output[-1], 0.0, 1.0))
@@ -128,12 +146,16 @@ class ActionComposer:
             executed = executed.astype(np.float32)
         return Intervention(executed, correction.astype(np.float32), gate)
 
-    def compose_tensor(self, base_action: Tensor, policy_output: Tensor) -> Tensor:
+    def compose_tensor(
+        self, base_action: Tensor, policy_output: Tensor, trigger: Tensor | float = 1.0
+    ) -> Tensor:
         """Differentiable composition used by SAC actor and target calculations."""
         if self.mode is ControlMode.SCRATCH:
             executed = policy_output
         elif self.mode is ControlMode.RESIDUAL:
             executed = base_action + policy_output
+        elif self.mode is ControlMode.TRIGGERED:
+            executed = base_action + trigger * policy_output
         elif self.mode is ControlMode.GATED:
             correction = policy_output[..., : self.action_dim]
             gate = policy_output[..., self.action_dim : self.action_dim + 1]
@@ -145,7 +167,7 @@ class ActionComposer:
     def random_policy_output(self, rng: np.random.Generator) -> np.ndarray:
         if self.mode is ControlMode.SCRATCH:
             return rng.uniform(self.action_low, self.action_high, self.action_dim).astype(np.float32)
-        if self.mode is ControlMode.RESIDUAL:
+        if self.mode in (ControlMode.RESIDUAL, ControlMode.TRIGGERED):
             return rng.uniform(-self.residual_scale, self.residual_scale, self.action_dim).astype(
                 np.float32
             )

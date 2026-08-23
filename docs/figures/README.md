@@ -25,10 +25,12 @@ section for the full experiment narrative.
 - `bc_rnn_baseline_training.png` — the frozen base policy's own training
   curve (robomimic BC-RNN, Square/PH/low-dim). The checkpoint used for every
   residual-RL experiment (epoch 800, 85% rollout success) is highlighted.
-- `success_rate_comparison.png` — 12-episode rolling success rate across the
-  three residual-RL attempts (always-on residual, gated with the original
-  0.5 gate-initialization bias, gated with the corrected 0.1 bias) against
-  the 85% frozen baseline.
-- `gate_trend.png` — learned intervention strength (gate value) over training
-  for the two gated-mode runs, showing the corrected bias run settling to a
-  visibly lower average gate.
+- `success_rate_comparison.png` — 12-episode rolling success rate across all
+  four residual-RL attempts (always-on residual, gated with the original 0.5
+  gate-initialization bias, gated with the corrected 0.1 bias, and TRIGGERED
+  mode's heuristic gate) against the 85% frozen baseline. TRIGGERED is the
+  only attempt that spends extended stretches at or above the baseline.
+- `gate_trend.png` — intervention strength over training: learned gate value
+  for the two gated-mode runs vs. TRIGGERED mode's trigger-active fraction
+  (bounded by the heuristic's ~15-30% critical-phase window rather than
+  drifting with training dynamics).
