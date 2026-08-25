@@ -5,6 +5,28 @@ from `scripts/robomimic/square_bridge_service.py` rollouts and robomimic's
 `run_trained_agent.py` video output. See the top-level README's "Thread B"
 section for the full experiment narrative.
 
+## Result videos
+
+- `results/bc_rnn_baseline/videos/rollouts.mp4` — every rollout from the
+  frozen BC-RNN's own evaluation, concatenated into one file by robomimic's
+  `run_trained_agent.py` (confirmed: 734 frames / 20fps / 36.7s, far longer
+  than any single episode, with ~13-17 scene-cut boundaries depending on
+  detection threshold — consistent with roughly 15 concatenated episodes).
+  Epoch 800 is the checkpoint referenced everywhere else in this project as
+  "the" BC-RNN checkpoint, so it is presented as that checkpoint's rollout,
+  though the file itself carries no explicit epoch label to verify this
+  against.
+- `results/speed_comparison/videos_concat/rollouts_all30.mp4` — the TRIGGERED
+  critic-fix policy's equivalent: all 30 episodes from the speed-comparison
+  set concatenated in order (see that directory's manifest for a full
+  episode-by-episode timestamp table). Built the same way in spirit as the
+  BC-RNN video above (every evaluated rollout, concatenated, in order) but
+  via the project's own bridge output rather than robomimic's script, since
+  this composed BC-RNN+SAC policy has no robomimic equivalent to run.
+- `results/speed_comparison/videos_curated/` — a shorter, purpose-built cut:
+  four clips (one success, one of each failure mode from the taxonomy below)
+  pulled from the same 30-episode set, with their own manifest.
+
 ## Task frames
 
 - `task_square_start.png` — episode start: square nut, round nut (unused),
@@ -32,24 +54,36 @@ section for the full experiment narrative.
 
 ## Training figures
 
-- `bc_rnn_baseline_training.png` — the frozen base policy's own training
-  curve (robomimic BC-RNN, Square/PH/low-dim). The checkpoint used for every
-  residual-RL experiment (epoch 800, 85% rollout success) is highlighted.
-- `success_rate_comparison.png` — 12-episode rolling success rate across all
-  six residual-RL attempts (always-on residual, gated with the original 0.5
-  gate-initialization bias, gated with the corrected 0.1 bias, TRIGGERED
-  mode's heuristic gate pre critic-fix, TRIGGERED with the critic/actor
-  trigger-masking fix at 50k steps, and the same fix extended to 100k steps)
-  against the 85% frozen baseline. Training-time rolling curves look similar
-  across all three TRIGGERED variants (all noisy, ~68-74%) because every
-  training episode carries fixed exploration noise — the fix's effect only
-  shows up in deterministic evaluation, and the 100k extension's own
-  deterministic curve (`extended_training_curve.png`) shows no further gain
-  from the extra steps.
-- `gate_trend.png` — intervention strength over training: learned gate value
-  for the two gated-mode runs vs. all three TRIGGERED runs' trigger-active
-  fraction (bounded by the heuristic's ~15-30% critical-phase window rather
-  than drifting with training dynamics).
+- `bc_rnn_baseline_training.png` — the frozen base policy's own rollout
+  success curve (robomimic BC-RNN, Square/PH/low-dim), parsed directly from
+  `results/bc_rnn_baseline/log.txt`'s per-checkpoint rollout evaluations (20
+  episodes every 200 epochs). The checkpoint used for every residual-RL
+  experiment (epoch 800, 85% rollout success -- the first epoch to hit the
+  run's peak) is highlighted.
+- `bc_rnn_loss_curves.png` — the same run's train/validation loss (GMM
+  negative log-likelihood), also parsed directly from `log.txt`. Train loss
+  decreases smoothly throughout (log scale not used here since NLL goes
+  negative once the model is confident); validation loss drops sharply then
+  sits in a broad, noisy plateau from roughly epoch 200-800 before drifting
+  slowly upward, a mild-overfitting signal too broad to pick a single best
+  epoch from directly -- which is why epoch 800 was chosen from the rollout
+  success curve instead. Epoch 800 is highlighted for comparison.
+- `success_rate_comparison.png` — 12-episode rolling success rate,
+  foregrounding the primary result: TRIGGERED mode with the critic/actor
+  trigger-masking fix (50k run plus its 100k extension) against the 85%
+  frozen baseline. The four earlier attempts (always-on residual, both
+  gated-mode bias settings, TRIGGERED pre critic-fix) are shown as thin gray
+  historical context, not a competing result — none of them reliably beat
+  the frozen baseline. Training-time rolling curves stay noisy (~68-74%)
+  because every training episode carries fixed exploration noise — the
+  fix's effect only shows up in deterministic evaluation, and the 100k
+  extension's own deterministic curve (`extended_training_curve.png`) shows
+  no further gain from the extra steps.
+- `gate_trend.png` — intervention strength over training: the two
+  critic-fix TRIGGERED runs' trigger-active fraction (bounded by the
+  heuristic's ~15-30% critical-phase window rather than drifting with
+  training dynamics), against the two gated-mode runs' learned gate value
+  as thin gray historical context.
 - `speed_comparison.png` — the RL Token paper predicts that on an
   already-competent baseline, RL should mostly buy *speed*, not accuracy —
   and that is exactly what the pre-critic-fix run showed (flat success,
@@ -71,12 +105,22 @@ section for the full experiment narrative.
   independent bridge so this is a real learning curve, not one end-of-run
   snapshot. Flat and noisy the entire way (mean 78%, std 6 points, no trend)
   -- see the README's "Would more training have helped?" section.
-- `loss_curves.png` — SAC critic/actor loss per episode, overlaid across the
-  original 50k critic-fix run, its retrain, and the 100k extension. Actor
-  loss climbs almost linearly with no sign of saturating in any of the three
-  runs; critic loss develops larger, more frequent spikes past step 50,000
-  in the extended run than either 50k run ever showed, even though the
-  success-rate curve above stays flat over the same stretch.
+- `loss_curves.png` — SAC critic/actor loss per episode for the TRIGGERED
+  critic-fix lineage (50k run plus its 100k extension; the pre-fix run is
+  omitted since it trained on the wrong action quantity, see the top-level
+  README). Critic loss is on a log scale with a 10-episode rolling mean:
+  it rises during early learning as the critic's Q-scale grows from
+  near-zero, then settles into a noisy but bounded band past roughly step
+  50,000 (occasional spikes are visible in the raw trace underneath).
+  Actor loss climbs steadily throughout both runs without saturating; since
+  the success-rate curve stays flat over the same stretch (see
+  `extended_training_curve.png`), this reads as numerical drift in the
+  critic's value scale rather than the policy getting worse.
+- `alpha_curve.png` — SAC's entropy temperature (alpha) for the same two
+  critic-fix runs. Flat at 0.1 for the entire 100k steps, since every
+  committed config fixes `automatic_entropy_tuning: false` — confirming the
+  historical unbounded-entropy-temperature bug (`LOG_ALPHA_MIN`/`MAX` in
+  `rl/sac.py`) never applied to any run in this report.
 - `runs/<run_name>.png` — one standalone figure per residual-RL attempt
   (success rate over training, plus loss curves where applicable), generated
   directly from that run's own `results/<run_name>/metrics.csv` rather than
