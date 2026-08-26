@@ -8,4 +8,10 @@ dist/
 build/
 runs/
 checkpoints/
+docker/robomimic/robomimic_src/
+
+# Diffusion Policy base checkpoints are ~1GB each (10GB total) -- too large
+# for a plain git repo. Hosted instead at
+# https://huggingface.co/georginio2000/diffusion-square-nutassembly
+results/diffusion_policy_baseline/model_checkpoints/
 

@@ -891,6 +891,113 @@ above (never-triggered, stuck-in-window, partial engagement) point at
 structural limits of the heuristic trigger and `residual_scale` instead, not
 an undertrained policy.
 
+## Diffusion Policy lineage: a second base policy, added alongside BC-RNN
+
+Everything above uses BC-RNN as the frozen base policy. This section adds a
+second, parallel lineage using robomimic's Diffusion Policy implementation
+(UNet + DDPM, action-chunked receding-horizon control) on the exact same
+task, dataset, and eval conventions -- BC-RNN is not replaced or touched by
+any of this; it stays the primary, fully-documented result above.
+
+### Stage 2: Diffusion Policy base training
+
+Trained for the same 2000 epochs, on the same Square/PH/low-dim dataset, with
+the same 20-episode rollout evaluation every 200 epochs as BC-RNN
+(`configs/robomimic_train/square_diffusion_policy.json`, adapted from
+robomimic's own `diffusion_policy.json` template; diffusion hyperparameters
+-- UNet, DDPM noise schedule, `observation_horizon=2`, `action_horizon=8`,
+`prediction_horizon=16` -- left at template defaults). See
+`docs/figures/base_policy_comparison.png`.
+
+| Epoch | 200 | 400 | 600 | 800 | 1000 | 1200 | 1400 | 1600 | **1800** | 2000 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Success | 85% | 85% | 85% | 70% | 75% | 90% | 85% | 85% | **95%** | 90% |
+
+Epoch 1800 (95%, first epoch to hit the run's peak -- same selection rule
+used for BC-RNN's epoch 800) is the checkpoint used for every Diffusion
+Policy residual-RL experiment below. Diffusion Policy's peak beats BC-RNN's
+85% by a real margin, which matters for reading Stage 3: there was
+meaningfully less headroom left for a residual correction to improve on.
+
+### Stage 3: SAC TRIGGERED (critic-fix) on frozen Diffusion Policy
+
+Same TRIGGERED-mode, critic-fix architecture as the primary BC-RNN result
+above -- same heuristic critical-phase trigger, same fixed `alpha=0.1`, same
+50,000-step budget (`configs/robomimic/square_triggered_diffusion.yaml`) --
+with the frozen policy swapped for the epoch-1800 Diffusion Policy
+checkpoint. Two real bugs surfaced getting this far, both in
+`scripts/robomimic/square_bridge_service.py`, both confirmed backward-
+compatible no-ops for BC-RNN (neither changes anything about the results
+above): `flatten_state()` didn't account for `frame_stack=2` doubling each
+observation field's shape (robomimic's `FrameStackWrapper`, unused by
+BC-RNN, stacks the last 2 frames per key) -- fixed by keeping only the most
+recent frame; and `step()` passed `action.tolist()` into `self.env.step()`,
+which broke inside `FrameStackWrapper.step()`'s own frame-history bookkeeping
+(a plain list doesn't support the `arr[None]` new-axis trick the wrapper
+needs) -- fixed by passing the ndarray directly.
+
+Final deterministic evaluation (20 episodes): **90% success**, mean episode
+length 201.1 steps -- essentially matching BC-RNN's own critic-fix result
+(90%, 178.4 steps) on the training run's own held-out evaluation.
+
+### The speed-comparison result: a regression, not a repeat
+
+The same 30-episode, same-seed (10000) frozen-vs-trained comparison used
+for BC-RNN's speed claim (`docs/figures/speed_comparison_diffusion.png`,
+raw data in `results/speed_comparison_diffusion/`) tells a different story
+here, and it's reported plainly rather than reframed:
+
+| | Success rate | Mean episode length (all episodes) |
+|---|---:|---:|
+| Frozen (epoch 1800) | 90.0% | 185.9 steps |
+| Trained (SAC critic-fix) | 80.0% | 205.5 steps |
+
+The trained residual correction did **worse** on accuracy than the frozen
+baseline on this sample -- the opposite of BC-RNN's 85%->90% gain. Restricted
+to successful episodes only (the same lens the BC-RNN speed figure uses),
+the picture is more nuanced: total episode length and critical-phase length
+are both marginally *shorter* under the trained policy (162.1 -> 156.9 steps;
+12.6 -> 8.7 critical-phase steps). So this isn't "the correction makes every
+episode worse" -- episodes it doesn't derail are, if anything, slightly
+faster, matching the RL Token paper's speed prediction. It's that the trained
+policy derails more episodes than it used to succeed on, dragging down the
+all-episode averages in both columns above.
+
+**A plausible, unconfirmed explanation.** Diffusion Policy predicts action
+*chunks* via receding-horizon control: robomimic's `DiffusionPolicyUNet`
+(`docker/robomimic/robomimic_src/robomimic/algo/diffusion_policy.py`) keeps
+an internal `action_queue` and only runs a fresh diffusion forward pass when
+that queue is empty -- with `action_horizon=8`, it replans once every 8
+steps and blindly executes the other 7 in between, with no way to know what
+the SAC correction actually did to the trajectory during that window.
+BC-RNN has no such queue -- it predicts fresh, single-step, every call -- so
+it never has this mismatch. This would mean the correction can compound a
+divergence from the base policy's own stale plan across up to 7 steps at a
+time, rather than being "absorbed" step-by-step the way it is for a reactive
+policy.
+
+This hypothesis was **not tested**. Three ways to adapt SAC to the chunk
+structure instead of fighting it were discussed and design-sketched but not
+implemented or retrained: (1) sync SAC's own decision cadence to the chunk
+boundary, holding one correction constant across all 8 steps of a chunk
+instead of resampling every step; (2) keep SAC's per-step cadence but give
+it explicit chunk-position awareness (steps since last replan, or the base
+policy's remaining planned actions) as additional observation inputs; (3)
+apply the correction to the *state the diffusion policy conditions on* when
+it replans, rather than to the executed action, so the model always
+generates a fully self-consistent chunk from a corrected starting point.
+Option 1 is the one that most directly preserves both of chunking's
+advantages (compute efficiency -- one diffusion forward pass still covers 8
+steps -- and within-chunk trajectory coherence, since a constant per-chunk
+offset shifts a plan without distorting its shape the way independent
+per-step corrections could); option 3 is the most novel and the furthest
+from the `executed_action = base_action + gate * correction` composition
+used everywhere else in this project, and isn't backed by an established
+citation for this exact combination (closest related work: Diffusion
+Policy, ACT/temporal ensembling, residual RL, classifier guidance, and
+DPPO). This is left here as an open question and a concrete starting point
+for whoever picks this up next, not a settled explanation.
+
 ## Where the raw data lives
 
 Every run referenced in this document has its full episode-by-episode
@@ -910,6 +1017,25 @@ motivated building the robomimic bridge in the first place
 (`results/robosuite_nutsquare/`, `results/robosuite_toolhang/`). Nothing in
 this document depends on the local, gitignored `runs/` directory.
 
+The one exception: the Diffusion Policy base checkpoints
+(`results/diffusion_policy_baseline/model_checkpoints/`) are a UNet, not a
+small GMM+LSTM, so each one is ~1GB (10GB for the full run) -- too large for
+a plain git repo. Those are hosted instead on Hugging Face Hub at
+[`georginio2000/diffusion-square-nutassembly`](https://huggingface.co/georginio2000/diffusion-square-nutassembly)
+(gitignored locally) and downloadable with `huggingface_hub`:
+```python
+from huggingface_hub import hf_hub_download
+hf_hub_download(
+    "georginio2000/diffusion-square-nutassembly",
+    "checkpoints/model_epoch_1800_low_dim_success_0.95.pth",
+)
+```
+Every other Diffusion Policy artifact -- Stage 3's SAC checkpoints
+(`results/robomimic_square_triggered_diffusion/model_checkpoints/`, ~20MB
+total), all config/metrics/summary files, and the speed-comparison JSON --
+is small enough to be committed normally, same as everything else in this
+document.
+
 `configs/robomimic/*.yaml` hold the *current* version of each config file,
 which was edited in place across iterations (e.g. `square_triggered.yaml` now
 reflects the final 100k dual-bridge setup, not the 50k version it started
@@ -928,4 +1054,7 @@ that run's numbers.
 | Triggered, critic-fix (50k) | `results/robomimic_square_triggered_50k_criticfix/` |
 | Triggered, critic-fix, extended (100k) | `results/robomimic_square_triggered/` |
 | Speed comparison (frozen vs. trained) | `results/speed_comparison/` |
+| Frozen Diffusion Policy baseline | `results/diffusion_policy_baseline/` |
+| Triggered, critic-fix, on Diffusion Policy (50k) | `results/robomimic_square_triggered_diffusion/` |
+| Speed comparison, Diffusion Policy lineage (frozen vs. trained) | `results/speed_comparison_diffusion/` |
 | LIBERO-10 task 8 verification (Thread A, abandoned) | `results/libero_10_task8_verify/` |

@@ -91,7 +91,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def flatten_state(obs: dict) -> np.ndarray:
-    return np.concatenate([np.asarray(obs[key], dtype=np.float32).ravel() for key in STATE_KEYS])
+    parts = []
+    for key in STATE_KEYS:
+        value = np.asarray(obs[key], dtype=np.float32)
+        if value.ndim > 1:
+            # Frame-stacked (e.g. Diffusion Policy checkpoints): obs history is
+            # concatenated along a leading axis, most recent frame last. This
+            # bridge is a real-time single-step control loop, so only the
+            # current frame is the right state to report.
+            value = value[-1]
+        parts.append(value.ravel())
+    return np.concatenate(parts)
 
 
 class SquareBridge:
@@ -114,8 +124,17 @@ class SquareBridge:
             ckpt_dict=ckpt_dict, render=False, render_offscreen=args.record_video, verbose=True
         )
         self._peg_body_id = None
+        self._raw_env = None
         if args.trigger:
-            raw_env = self.env.env
+            # BC-RNN checkpoints resolve self.env directly to EnvRobosuite, so
+            # .env reaches the raw robosuite env with .sim in one hop. Diffusion
+            # Policy checkpoints (frame_stack > 0) add a FrameStackWrapper layer,
+            # so the raw env with .sim is one hop further down; walk until found
+            # instead of hardcoding the hop count.
+            raw_env = self.env
+            while not hasattr(raw_env, "sim"):
+                raw_env = raw_env.env
+            self._raw_env = raw_env
             self._peg_body_id = raw_env.sim.model.body_name2id("peg1")
             logging.info(
                 "heuristic trigger enabled: distance<%.3fm %s speed<%.3fm/step",
@@ -165,7 +184,7 @@ class SquareBridge:
         deliberately" signal without needing an explicit dt.
         """
         eef_pos = np.asarray(obs["robot0_eef_pos"], dtype=np.float64)
-        peg_pos = np.asarray(self.env.env.sim.data.body_xpos[self._peg_body_id], dtype=np.float64)
+        peg_pos = np.asarray(self._raw_env.sim.data.body_xpos[self._peg_body_id], dtype=np.float64)
         distance = float(np.linalg.norm(eef_pos - peg_pos))
         if self._prev_eef_pos is None:
             speed = 0.0
@@ -234,7 +253,15 @@ class SquareBridge:
             raise ValueError("action must contain only finite values")
         update_array_digest(self.executed_action_digest, "executed_action", action)
 
-        obs, reward, done, info = self.env.step(action.tolist())
+        # Pass the ndarray itself, not action.tolist(): robomimic's
+        # FrameStackWrapper.step() (Diffusion Policy checkpoints, frame_stack > 0)
+        # stores this value as obs["actions"] and later does obs[k][None] on every
+        # key to stack frames, which needs numpy's new-axis semantics -- a plain
+        # list raises "list indices must be integers or slices, not NoneType"
+        # there. EnvRobosuite.step() (BC-RNN, no wrapper) already expects an
+        # ndarray per its own docstring and passes it straight through to
+        # robosuite unchanged, so this is a no-op for BC-RNN.
+        obs, reward, done, info = self.env.step(action)
         self.control_steps += 1
         self.episode_return += float(reward)
         self._capture_frame()

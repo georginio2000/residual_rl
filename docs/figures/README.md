@@ -126,3 +126,49 @@ section for the full experiment narrative.
   directly from that run's own `results/<run_name>/metrics.csv` rather than
   overlaid against the others. Useful when a single run's own trajectory
   matters more than the cross-run comparison.
+
+## Diffusion Policy lineage
+
+A second, parallel base policy alongside BC-RNN (same task, same dataset,
+never used to replace it — see the top-level README's "Diffusion Policy
+lineage" section for the full narrative, including the negative Stage 3
+result these figures document).
+
+- `base_policy_comparison.png` — both base policies' own rollout success
+  curves overlaid on one plot, parsed directly from their respective
+  `log.txt` files (`results/bc_rnn_baseline/`, `results/diffusion_policy_
+  baseline/`) with the same 20-episode-every-200-epoch cadence, so they're
+  directly comparable. Diffusion Policy reaches a higher peak (95% at epoch
+  1800) than BC-RNN (85% at epoch 800) on this task -- unsurprising given
+  action-chunked diffusion policies are generally the stronger imitation
+  method on precision manipulation, but it also means Diffusion Policy's
+  frozen baseline had much less headroom left for a residual correction to
+  improve on, which matters for reading the Stage 3 result below.
+- `speed_comparison_diffusion.png` — the same 30-episode, same-seed (10000)
+  frozen-vs-trained methodology as `speed_comparison.png`, applied to the
+  Diffusion Policy lineage. Unlike BC-RNN, this is a **regression, not a
+  win**: success rate drops from 90% (frozen) to 80% (trained). Restricting
+  to successful episodes only (the same lens `speed_comparison.png` uses),
+  the speed picture is roughly neutral -- total episode length and
+  critical-phase length are both marginally *shorter* under the trained
+  policy (162.1 -> 156.9 steps; 12.6 -> 8.7 critical-phase steps) -- so the
+  story isn't "the correction makes every episode worse," it's "the
+  correction doesn't reliably hurt episodes it doesn't derail, but derails
+  more episodes than it used to succeed on." Colors deliberately avoid this
+  project's usual blue/purple frozen-vs-better-trained palette, since purple
+  reads as "the win" in `speed_comparison.png` and reusing it here would be
+  misleading.
+- `stage3_lineage_comparison.png` — a compact side-by-side of both
+  lineages' Stage 3 outcomes: BC-RNN 85%->90% (gain) vs. Diffusion Policy
+  90%->80% (regression). Mixes two eval protocols on purpose and says so in
+  the figure: BC-RNN's bars are robomimic's own 20-episode rollout eval
+  (frozen) and the SAC run's own 20-episode deterministic eval (trained);
+  Diffusion Policy's bars are both from the 30-episode speed-comparison
+  sample above. A leading hypothesis for *why* the two lineages diverge
+  (untested -- see the top-level README) is that Diffusion Policy predicts
+  action **chunks** via receding-horizon control (robomimic's
+  `DiffusionPolicyUNet`, `action_horizon=8`): it only replans every 8 steps,
+  so for up to 7 steps at a time it blindly executes a pre-planned chunk
+  that has no knowledge of what the SAC correction actually did to the
+  trajectory in the meantime -- a mismatch BC-RNN's single-step reactive
+  prediction never has.

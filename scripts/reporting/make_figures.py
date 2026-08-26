@@ -366,6 +366,132 @@ def plot_speed_comparison() -> None:
     plt.close(fig)
 
 
+def load_bridge_episodes(json_path: Path) -> list[dict]:
+    with json_path.open(encoding="utf-8") as handle:
+        return json.load(handle)["episodes"]
+
+
+def plot_base_policy_comparison() -> None:
+    # parse_bc_rnn_log() is generic despite its name: robomimic's train.py
+    # writes structurally identical Train/Validation Epoch loss blocks and
+    # "Epoch N Rollouts...Success_Rate" blocks regardless of which algo is
+    # training (confirmed directly against results/diffusion_policy_baseline
+    # /log.txt -- same block shapes, just a different "Loss" definition
+    # under the hood: GMM NLL for BC-RNN, denoising MSE for Diffusion
+    # Policy). Both runs share the same evaluation cadence (20-episode
+    # rollout every 200 epochs, 0-2000), so their rollout curves are
+    # directly comparable on one x-axis.
+    bc_rnn = parse_bc_rnn_log(RESULTS / "bc_rnn_baseline" / "log.txt")
+    diffusion = parse_bc_rnn_log(RESULTS / "diffusion_policy_baseline" / "log.txt")
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(
+        bc_rnn["rollout_epochs"], bc_rnn["rollout_success"],
+        marker="o", color="#4c6a9a", linewidth=2, label="BC-RNN",
+    )
+    ax.scatter([800], [0.85], color="#d97757", zorder=5, s=70, label="BC-RNN checkpoint used (epoch 800)")
+    ax.plot(
+        diffusion["rollout_epochs"], diffusion["rollout_success"],
+        marker="o", color="#b5895c", linewidth=2, label="Diffusion Policy",
+    )
+    ax.scatter([1800], [0.95], color="#2f8f5b", zorder=5, s=70, label="Diffusion Policy checkpoint used (epoch 1800)")
+    ax.set_xlabel("Training epoch")
+    ax.set_ylabel("Rollout success rate (20 episodes)")
+    ax.set_title("Base policy training: BC-RNN vs. Diffusion Policy (Square, PH, low-dim)")
+    ax.set_ylim(-0.05, 1.05)
+    ax.legend(loc="lower right", fontsize=9)
+    ax.grid(alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "base_policy_comparison.png", dpi=160)
+    plt.close(fig)
+
+
+def plot_speed_comparison_diffusion() -> None:
+    # Same 30-episode, same-seed (10000) frozen-vs-trained methodology as
+    # speed_comparison.png, applied to the Diffusion Policy lineage --
+    # parsed at runtime from results/speed_comparison_diffusion/ rather than
+    # hand-transcribed. Unlike the BC-RNN result, this is a REGRESSION on
+    # success rate (90% frozen -> 80% trained), so colors deliberately avoid
+    # the blue/purple "frozen vs. clearly-better-trained" palette used in
+    # speed_comparison.png -- purple there reads as "the win"; reusing it
+    # here for a result that isn't one would be misleading.
+    frozen_eps = load_bridge_episodes(RESULTS / "speed_comparison_diffusion" / "frozen_30ep.json")
+    trained_eps = load_bridge_episodes(RESULTS / "speed_comparison_diffusion" / "trained_criticfix_30ep_seed10000.json")
+
+    frozen_success = sum(e["success"] for e in frozen_eps) / len(frozen_eps)
+    trained_success = sum(e["success"] for e in trained_eps) / len(trained_eps)
+
+    def mean_of(eps: list[dict], key: str) -> float:
+        succ = [e for e in eps if e["success"]]
+        return sum(e[key] for e in succ) / len(succ)
+
+    frozen_speed = [mean_of(frozen_eps, "control_steps"), mean_of(frozen_eps, "trigger_active_steps")]
+    trained_speed = [mean_of(trained_eps, "control_steps"), mean_of(trained_eps, "trigger_active_steps")]
+
+    fig, (ax_rate, ax_speed) = plt.subplots(1, 2, figsize=(11, 5), gridspec_kw={"width_ratios": [1, 1.6]})
+
+    ax_rate.bar(["Frozen", "Trained\n(critic-fix)"], [frozen_success, trained_success], color=["#6a8caf", "#b5895c"])
+    for i, v in enumerate([frozen_success, trained_success]):
+        ax_rate.text(i, v + 0.02, f"{v:.0%}", ha="center", fontsize=10)
+    ax_rate.set_ylim(0, 1.05)
+    ax_rate.set_ylabel("Success rate (30 episodes, seed 10000)")
+    ax_rate.set_title("Accuracy: regression")
+    ax_rate.grid(alpha=0.25, axis="y")
+
+    labels = ["Total episode\n(successes only)", "Critical phase\n(trigger-active steps)"]
+    x = np.arange(len(labels))
+    width = 0.32
+    ax_speed.bar(x - width / 2, frozen_speed, width, label=f"Frozen ({frozen_success:.0%} success)", color="#6a8caf")
+    ax_speed.bar(x + width / 2, trained_speed, width, label=f"Trained ({trained_success:.0%} success)", color="#b5895c")
+    for i, (f, t) in enumerate(zip(frozen_speed, trained_speed)):
+        ax_speed.text(i - width / 2, f + 1, f"{f:.0f}", ha="center", fontsize=9)
+        ax_speed.text(i + width / 2, t + 1, f"{t:.0f}", ha="center", fontsize=9)
+    ax_speed.set_xticks(x)
+    ax_speed.set_xticklabels(labels)
+    ax_speed.set_ylabel("Mean control steps")
+    ax_speed.set_title("Speed on successful episodes: roughly neutral")
+    ax_speed.legend(loc="upper right", fontsize=9)
+    ax_speed.grid(alpha=0.25, axis="y")
+
+    fig.suptitle("Diffusion Policy lineage: frozen vs. SAC-trained TRIGGERED (critic-fix)")
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "speed_comparison_diffusion.png", dpi=160)
+    plt.close(fig)
+
+
+def plot_stage3_lineage_comparison() -> None:
+    # Contrasts final Stage 3 outcomes across both base-policy lineages.
+    # Deliberately mixes two eval protocols and says so in the figure
+    # itself: BC-RNN's bars are robomimic's own 20-episode rollout eval
+    # (frozen) and the SAC run's own 20-episode deterministic eval
+    # (trained, from results/robomimic_square_triggered_50k_criticfix/
+    # summary.json); Diffusion Policy's bars are the 30-episode
+    # speed-comparison sample (both, for methodology parity between its own
+    # two bars). Labeling this plainly in the title/annotation matters more
+    # here than a spurious appearance of one clean protocol across all four.
+    labels = ["BC-RNN\nfrozen", "BC-RNN\ntrained", "Diffusion Policy\nfrozen", "Diffusion Policy\ntrained"]
+    values = [0.85, 0.90, 0.90, 0.80]
+    colors = ["#6a8caf", "#4c9a6b", "#6a8caf", "#c0554a"]
+
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    bars = ax.bar(labels, values, color=colors)
+    for bar, v in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width() / 2, v + 0.015, f"{v:.0%}", ha="center", fontsize=10)
+    ax.annotate(
+        "",
+        xy=(2.5, 0.5), xytext=(1.5, 0.5),
+        arrowprops={"arrowstyle": "-", "color": "#999999", "linestyle": "--"},
+    )
+    ax.text(2, 0.52, "different eval protocol\n(20-ep rollout vs. 30-ep speed sample)", ha="center", fontsize=7.5, color="#777777")
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("Success rate")
+    ax.set_title("Stage 3 outcome by base-policy lineage: BC-RNN gains, Diffusion Policy regresses")
+    ax.grid(alpha=0.25, axis="y")
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "stage3_lineage_comparison.png", dpi=160)
+    plt.close(fig)
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_success_rate_comparison()
@@ -375,6 +501,9 @@ def main() -> None:
     plot_sac_loss_curves()
     plot_alpha_curve()
     plot_speed_comparison()
+    plot_base_policy_comparison()
+    plot_speed_comparison_diffusion()
+    plot_stage3_lineage_comparison()
     print(f"Wrote figures to {OUT_DIR}")
 
 

@@ -1,0 +1,32 @@
+experiment:
+  name: robomimic_square_frozen_diffusion
+  mode: frozen
+  seed: 0
+  device: cpu
+  output_dir: runs/robomimic_square_frozen_diffusion
+
+environment:
+  backend: remote_robomimic
+  options:
+    endpoint: http://127.0.0.1:8766
+    observation_dim: 23
+    action_dim: 7
+    action_low: -2.0
+    action_high: 2.0
+    action_dtype: float64
+    timeout: 120.0
+
+base_policy:
+  backend: observation_action
+  options:
+    key: base_action
+
+representation:
+  backend: observation_key
+  options:
+    key: observation/state
+    output_dim: 23
+
+training:
+  total_steps: 0
+  evaluation_episodes: 20
